@@ -4,7 +4,7 @@ Attempt to implement a dummy simil git
 ## Notes
 **Is it possible to establish a connection between two PCs (not in LAN)?**
 
-[Link](https://stackoverflow.com/questions/18021189/how-to-connect-two-computers-over-internet-using-socket-programming-in-c) Short answert - No 
+[Link](https://stackoverflow.com/questions/18021189/how-to-connect-two-computers-over-internet-using-socket-programming-in-c) - Short answert, No 
 
 **How to transfer files using UDP**
 
