@@ -13,3 +13,6 @@ Attempt to implement a dummy simil git
 **Some usefull things about forking and threading**
 
 [Link](https://stackoverflow.com/questions/16354460/forking-vs-threading) - This is not so important. I leave it here just in case
+
+## Task list
+- [ ] Transfer files between client and server using TCP/IP (i.e. with SOCK_STREAM)
