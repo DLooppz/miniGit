@@ -28,7 +28,7 @@ typedef struct{
 
 typedef struct tree{
     GenericObject_t obj;
-    struct tree *subdirs;
+    struct tree **subdirs;
     int n_subdirs;
 }TreeObject_t;
 
@@ -63,7 +63,7 @@ BlobObject_t* _blobObjectCreateFromFile(FILE* file);
 BlobObject_t* _blobObjectCreateFromString(char* str);
 void _blobObjectDestroy(BlobObject_t* blob);
 
-TreeObject_t* _treeObjectCommitCreate(Index_t index_updated, TreeObject_t *root_dirs);
+TreeObject_t* _treeObjectCommitCreate(Index_t index_updated);
 TreeObject_t* _treeObjectDirCreate(int subdirs);
 void _treeObjectAddEntrie(char* filename, char* SHA1name);
 void _treeObjectSetName(TreeObject_t* finished_tree); /* Update SHA1 name when had all of its entries */
