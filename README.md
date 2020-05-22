@@ -1,10 +1,14 @@
 # miniGit
-Attempt to implement a dummy simil git
+Attempt to implement a dummy git
 
 ## Notes
 **Is it possible to establish a connection between two PCs (not in LAN)?**
 
-[Link](https://stackoverflow.com/questions/18021189/how-to-connect-two-computers-over-internet-using-socket-programming-in-c) - Short answert, No 
+[Link](https://stackoverflow.com/questions/18021189/how-to-connect-two-computers-over-internet-using-socket-programming-in-c) - Short answert, No
+
+**Multithreading server using TCP/IP**
+
+[Link](https://dzone.com/articles/parallel-tcpip-socket-server-with-multi-threading) - Very nice explanation and code
 
 **How to transfer files using UDP**
 
@@ -15,4 +19,11 @@ Attempt to implement a dummy simil git
 [Link](https://stackoverflow.com/questions/16354460/forking-vs-threading) - This is not so important. I leave it here just in case
 
 ## Task list
-- [ ] Transfer files between client and server using TCP/IP (i.e. with SOCK_STREAM)
+- [x] Transfer files between client and server using TCP/IP with multiple threads (i.e. with SOCK_STREAM)
+- [x] Logic of miniGit
+- [x] Minimal example of one client, one socket and two threads.
+- [ ] Finish some stuff in server.c (see TODO) @klostermati
+- [ ] Simple login @klostermati
+- [ ] Logic of data and command sockets in thread @klostermati
+- [ ] Minimal example of: compress, send, receive and uncompress file through a socket @DLooppz
+- [ ] .h of miniGit logic @DLooppz
