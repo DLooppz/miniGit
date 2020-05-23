@@ -21,13 +21,3 @@ Implementation of a dummy git with server/cloud storage
 **Some usefull things about forking and threading**
 
 [Link](https://stackoverflow.com/questions/16354460/forking-vs-threading) - This is not so important. I leave it here just in case
-
-## Task list
-- [x] Transfer files between client and server using TCP/IP with multiple threads (i.e. with SOCK_STREAM)
-- [x] Logic of miniGit
-- [x] Minimal example of one client, one socket and two threads.
-- [x] More complex example using two threads per client/socket
-- [ ] Logic of data and command sockets in thread @klostermati
-- [ ] Simple login @klostermati
-- [ ] Minimal example of: compress, send, receive and uncompress file through a socket @DLooppz
-- [ ] Modify .h of miniGit logic @DLooppz
