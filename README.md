@@ -1,5 +1,5 @@
 # miniGit
-Implementation of a dummy git with server/cloud
+Implementation of a dummy git with server/cloud storage
 
 ## Notes
 **zLib Usage Example**
