@@ -58,6 +58,7 @@ void findFile(char *basePath,char* fileToFind, char* foundFile)
 }
 
 
+
 int main(int argc, char *argv[]){
 
     // Correct usage
@@ -73,7 +74,9 @@ int main(int argc, char *argv[]){
     }
 
     // File found
-    // FILE *foundFileContent;
+    FILE *foundFileContent;
+    char *buffer;
+    long lSize;
 
     // Get hash
     char hashObj[150];
@@ -84,8 +87,30 @@ int main(int argc, char *argv[]){
     char foundFile[150];
     findFile(".",hashObj,foundFile);
 
+    // Open file and print its content
     printf("File was found!! Name: %s\n",foundFile);
-    
-    // fclose(foundFileContent);
+    foundFileContent = fopen(foundFile,"rb");
+    if(!foundFileContent) perror("Error opening file hashed\n"),exit(3);
+
+    // Set the file position indicator at the end
+    fseek(foundFileContent , 0L , SEEK_END);
+
+    // Get the file position indicator 
+    lSize = ftell(foundFileContent);
+    rewind(foundFileContent);
+
+    // allocate memory for entire content
+    buffer = calloc(1, lSize + 1);
+    if(!buffer) fclose(foundFileContent),fputs("memory alloc fails",stderr),exit(4);
+
+    // copy the file into the buffer 
+    if(fread( buffer , lSize, 1 , foundFileContent) != 1)
+        fclose(foundFileContent),free(buffer),fputs("entire read fails",stderr),exit(5);
+
+    // Now buffer is a string containing the whole text
+    printf("********* Found file content:\n%s\n",buffer);
+
+    free(buffer);
+    fclose(foundFileContent);
     return 0;
 }
