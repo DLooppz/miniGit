@@ -18,30 +18,43 @@ Recordar:
     arv[]: array de strings con los args (nombre del ej + extras)
 */
 
-// Example of hash: 1ef89d27a674ddaf252b2ca35bb74aff06eac15d
+// Example of hash: 013bbe798a36e78ebf2a3cb96c597bd5919ed937
 
 
-void findFile(char *basePath,char* fileToFind, char* foundFile)
+void findFile(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
 {
-    /* Function that finds fileToFind and stores it in foundFile. Returns 1 when found */
+    /* Function that finds path of hashToFind and stores it in pathFound */
     char path[1000];
     struct dirent *dirent_pointer;
     DIR *dir = opendir(basePath);
+    char hashToFindCropped[2*SHA_DIGEST_LENGTH - 2];
+    char first2Characters[3];
+    
+    // Crop the first 2 characters of hashToFind
+    for (int i=0;i<(2*SHA_DIGEST_LENGTH-2);i++){
+        hashToFindCropped[i] = hashToFind[i+2];
+    }
 
     // Unable to open directory stream
     if (!dir)
         return;
 
-    while (((dirent_pointer = readdir(dir)) != NULL) && (strcmp(foundFile,fileToFind) != 0)){
+    while (((dirent_pointer = readdir(dir)) != NULL) && (*findStatus != 1)){
         // Avoid "." and ".." entries
         if (strcmp(dirent_pointer->d_name, ".") != 0 && strcmp(dirent_pointer->d_name, "..") != 0){
             // Check if file was found
-            if (strcmp(dirent_pointer->d_name,fileToFind) == 0){
-                strcpy(fileToFind,dirent_pointer->d_name);
-                strcpy(foundFile,basePath);
-                strcat(foundFile, "/");
-                strcat(foundFile, fileToFind);
-                strcpy(fileToFind,foundFile);
+            if (strcmp(dirent_pointer->d_name,hashToFindCropped) == 0){
+                strcpy(hashToFindCropped,dirent_pointer->d_name);
+                printf("hashToFindCropped: %s\n",hashToFindCropped);
+                strcpy(pathFound,basePath);
+                printf("pathFound: %s\n",pathFound);
+                strcat(pathFound, "/");
+                printf("pathFound: %s\n",pathFound);
+                strcat(pathFound, hashToFindCropped);
+                printf("pathFound: %s\n",pathFound);
+
+                // Notify that file was found and return
+                *findStatus = 1;
                 return;
             }
 
@@ -50,11 +63,10 @@ void findFile(char *basePath,char* fileToFind, char* foundFile)
             strcat(path, "/");
             strcat(path, dirent_pointer->d_name);
 
-            findFile(path,fileToFind,foundFile);
+            findFile(path,hashToFind,pathFound,findStatus);
         }
     }
     closedir(dir);
-    return;
 }
 
 
@@ -84,12 +96,18 @@ int main(int argc, char *argv[]){
     printf("Hash inserted: %s\n\n",hashObj);
 
     // Search in dirs for FileHashed
-    char foundFile[150];
-    findFile(".",hashObj,foundFile);
+    char pathFound[150];
+    int findStatus = 0;
+    findFile(".",hashObj,pathFound,&findStatus);
+    if (findStatus != 1){
+        printf("Error! Hashed object not found!\n");
+        printf("Found instead %s\n",pathFound);
+        exit(EXIT_FAILURE);
+    }
 
     // Open file and print its content
-    printf("File was found!! Name: %s\n",foundFile);
-    foundFileContent = fopen(foundFile,"rb");
+    printf("File was found!! Name: %s\n",pathFound);
+    foundFileContent = fopen(pathFound,"rb");
     if(!foundFileContent) perror("Error opening file hashed\n"),exit(3);
 
     // Set the file position indicator at the end

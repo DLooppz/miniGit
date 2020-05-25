@@ -6,6 +6,55 @@
 #include <openssl/sha.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
+
+void findFile(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
+{
+    /* Function that finds path of hashToFind and stores it in pathFound */
+    char path[1000];
+    struct dirent *dirent_pointer;
+    DIR *dir = opendir(basePath);
+    char hashToFindCropped[2*SHA_DIGEST_LENGTH - 2];
+    char first2Characters[3];
+    
+    // Crop the first 2 characters of hashToFind
+    for (int i=0;i<(2*SHA_DIGEST_LENGTH-2);i++){
+        hashToFindCropped[i] = hashToFind[i+2];
+    }
+
+    // Unable to open directory stream
+    if (!dir)
+        return;
+
+    while (((dirent_pointer = readdir(dir)) != NULL) && (*findStatus != 1)){
+        // Avoid "." and ".." entries
+        if (strcmp(dirent_pointer->d_name, ".") != 0 && strcmp(dirent_pointer->d_name, "..") != 0){
+            // Check if file was found
+            if (strcmp(dirent_pointer->d_name,hashToFindCropped) == 0){
+                
+                // Stores path if "pathFound" != NULL
+                if (pathFound != NULL){
+                    strcpy(hashToFindCropped,dirent_pointer->d_name);
+                    strcpy(pathFound,basePath);
+                    strcat(pathFound, "/");
+                    strcat(pathFound, hashToFindCropped);
+                }
+
+                // Notify that file was found and return
+                *findStatus = 1;
+                return;
+            }
+
+            // Construct new path from our base path
+            strcpy(path, basePath);
+            strcat(path, "/");
+            strcat(path, dirent_pointer->d_name);
+
+            findFile(path,hashToFind,pathFound,findStatus);
+        }
+    }
+    closedir(dir);
+}
 
 void computeSHA1(char* text, char* hash_output){
     /* Computes hash (SHA1 checksum) of text given by text*/
@@ -94,12 +143,54 @@ void hashObject(char type, char* path, char* hashName_out, char* creationFlag){
 
     // Compute SHA1 of header + content of file
     computeSHA1(contentPlusHeader,hashName_out);
-    printf("\n\nTamanio %ld\n",strlen(content));
-    printf("Content+Header: l%sl\n\n",contentPlusHeader);
+    printf("\nHeader+Content: %s\n\n",contentPlusHeader);
 
     // Check if object should be created
     if (strcmp(creationFlag,"-w") == 0){
-        printf("TODO: create object as requested! jejeje\n");
+        
+        // Check if object already exist (findFlag will be 1)
+        int findFlag = 0;
+        findFile(".",hashName_out,NULL,&findFlag);
+        
+        // Create if doesnt exist --> This may be another subfunction
+        if (findFlag != 1){
+            
+            // Dir name
+            char dirName[15] = "objects/";
+            char aux[3];
+            for (int i=0;i<2;i++){
+                aux[i] = hashName_out[i];
+            }
+            aux[2] = '\0';
+            strcat(dirName,aux);
+
+            // Create dir
+            struct stat st = {0};
+            if (stat(dirName, &st) == -1) {
+                mkdir(dirName, 0700);
+            }
+
+            // File name
+            char croppedHash[2*SHA_DIGEST_LENGTH - 2];
+            char fullPath[2*SHA_DIGEST_LENGTH + 15];
+            FILE *file_pointer;
+
+            for (int i=0;i<(2*SHA_DIGEST_LENGTH - 2);i++){
+                croppedHash[i] = hashName_out[i+2];
+            }
+            strcpy(fullPath,dirName);
+            strcat(fullPath,"/");
+            strcat(fullPath,croppedHash);
+
+            file_pointer  = fopen (fullPath, "w");
+            fprintf(file_pointer, "%s", contentPlusHeader);
+            fclose(file_pointer);
+            printf("File object added.\n\n");
+        }
+        else{
+            printf("File object already exists. It was not created.\n\n");
+        }
+        
     }
 
     // Close and free 
