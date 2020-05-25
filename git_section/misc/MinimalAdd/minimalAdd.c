@@ -74,7 +74,46 @@ void computeSHA1(char* text, char* hash_output){
     strcpy(hash_output,hex_hashed_text);
 }
 
-void addObjectFile();
+void addObjectFile(char* hashName, char* contentPlusHeader){
+    // Be sure of hashName lenght (sometimes hashName comes with trash at the end)
+    char hashToAdd[2*SHA_DIGEST_LENGTH];
+    strncpy(hashToAdd,hashName,2*SHA_DIGEST_LENGTH);
+    
+    // Dir name
+    char dirName[15] = "objects/";
+    char aux[3];
+    for (int i=0;i<2;i++){
+        aux[i] = hashToAdd[i];
+    }
+    aux[2] = '\0';
+    strcat(dirName,aux);
+
+    // Create dir
+    struct stat st = {0};
+    if (stat(dirName, &st) == -1) {
+        mkdir(dirName, 0700);
+    }
+
+    // File name
+    char croppedHash[2*SHA_DIGEST_LENGTH - 2];
+    char fullPath[2*SHA_DIGEST_LENGTH + 15];
+    FILE *file_pointer;
+
+    for (int i=0;i<(2*SHA_DIGEST_LENGTH - 2);i++){
+        croppedHash[i] = hashToAdd[i+2];
+    }
+
+    strcpy(fullPath,dirName);
+    strcat(fullPath,"/");
+    strcat(fullPath,croppedHash);
+
+
+
+    file_pointer  = fopen (fullPath, "w");
+    fprintf(file_pointer, "%s", contentPlusHeader);
+    fclose(file_pointer);
+    printf("File object added.\n\n");
+}
 
 void buildHeader(char type, long contentSize, char* header_out){
 
@@ -145,52 +184,18 @@ void hashObject(char type, char* path, char* hashName_out, char* creationFlag){
     computeSHA1(contentPlusHeader,hashName_out);
     printf("\nHeader+Content: %s\n\n",contentPlusHeader);
 
-    // Check if object should be created
+    // Creation flag given
     if (strcmp(creationFlag,"-w") == 0){
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
         findFile(".",hashName_out,NULL,&findFlag);
         
-        // Create if doesnt exist --> This may be another subfunction
-        if (findFlag != 1){
-            
-            // Dir name
-            char dirName[15] = "objects/";
-            char aux[3];
-            for (int i=0;i<2;i++){
-                aux[i] = hashName_out[i];
-            }
-            aux[2] = '\0';
-            strcat(dirName,aux);
-
-            // Create dir
-            struct stat st = {0};
-            if (stat(dirName, &st) == -1) {
-                mkdir(dirName, 0700);
-            }
-
-            // File name
-            char croppedHash[2*SHA_DIGEST_LENGTH - 2];
-            char fullPath[2*SHA_DIGEST_LENGTH + 15];
-            FILE *file_pointer;
-
-            for (int i=0;i<(2*SHA_DIGEST_LENGTH - 2);i++){
-                croppedHash[i] = hashName_out[i+2];
-            }
-            strcpy(fullPath,dirName);
-            strcat(fullPath,"/");
-            strcat(fullPath,croppedHash);
-
-            file_pointer  = fopen (fullPath, "w");
-            fprintf(file_pointer, "%s", contentPlusHeader);
-            fclose(file_pointer);
-            printf("File object added.\n\n");
-        }
-        else{
+        // Create if doesnt exist
+        if (findFlag != 1)
+            addObjectFile(hashName_out, contentPlusHeader);
+        else
             printf("File object already exists. It was not created.\n\n");
-        }
-        
     }
 
     // Close and free 
