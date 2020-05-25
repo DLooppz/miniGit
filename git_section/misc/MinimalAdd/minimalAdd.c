@@ -204,23 +204,28 @@ void hashObject(char type, char* path, char* hashName_out, char* creationFlag){
     free(contentPlusHeader);
 }
 
+void updateIndex(){
+
+
+
+}
 
 int main(int argc, char *argv[]){
 
     // Correct usage
     if (argc < 2){
-        printf("Error!\nUsage: ./minimalAdd [File1] [File2]... [FileN]\n");
+        printf("Error!\nUsage: ./minimalAdd [File]\n");
         printf("Usage: ./minimalAdd .\n");
         exit(1);
     }
 
-    // "." to add all files
+    // "." to add all files TODO
     int n_files = argc - 1;
     if ((n_files == 1) && (strcmp(argv[1],".")==0)){
         n_files = -1;
         printf("All files to add!\n");
     }
-    // [files] in other case TODO
+    // [files] in other case
     else{
         printf("Files to add: ");
         for (int i=0;i<n_files;i++){
