@@ -21,9 +21,10 @@ int main(){
     int opt = 1, ret;
     clientInfo_t clientInfo;
     socklen_t addrSize;
-    char buffer[BUFFSIZE], typedInCommand[BUFFSIZE];
+    char buffer[BUFFSIZE], typedInCommand[BUFFSIZE], checkPass[PASSLEN];
     struct Packet packet;
     enum ResponseValues responseValue;
+    enum Command command;
 
     // Initialization and configuration of socket
     bzero(&clientInfo, sizeof(clientInfo));
@@ -38,52 +39,151 @@ int main(){
     if(connect(clientInfo.sock_fd, (struct sockaddr *) &clientInfo.sock_addr, addrSize) == -1)
         error("ERROR in connecting to server");
 
-    setClientLoggedIn(&clientInfo, false); // client must start as not logged in
+    setClientSignedIn(&clientInfo, false); // client must start as not signed in
     
     while(1){
         // Ask user for command
-        printf("Enter a command and then hit enter.\n");
-        scanf("%s", typedInCommand); //fgets
+        getStdInput(typedInCommand, COMMANDLEN, &clientInfo, "Enter command");
+        
+        command = typed2enum(typedInCommand);
 
-        if(strcmp(typedInCommand,"login") == 0){
-            if(isLoggedIn(&clientInfo)){
-                printf("Already logged in\n");
-                continue;
-            }
+        switch (command){
+            case signin:
+                // Check if signed in
+                if(isSignedIn(&clientInfo)){
+                    printf("Already signed in\n");
+                    break;
+                }
 
-            printf("Enter username.\n");
-            scanf("%s", clientInfo.username);
-            printf("Enter password.\n");
-            scanf("%s", clientInfo.password);
+                // Ask user for username and password
+                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username");
+                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password");
 
-            setLoginPacket(&packet, clientInfo.username ,clientInfo.password);
-            sendPacket(clientInfo.sock_fd, &packet);
+                // Send packet
+                setSignInPacket(&packet, clientInfo.username ,clientInfo.password);
+                sendPacket(clientInfo.sock_fd, &packet);
 
-            // Wait for server response
-            if(recvPacket(clientInfo.sock_fd, &packet) != 1){
-                printf("Error when receiving server response packet\n");
+                // Wait for server response
+                if(recvPacket(clientInfo.sock_fd, &packet) != 1)
+                    error("Error when receiving server response packet\n");
+                
+                // Check if packet received is a response
+                if(getPacketCommand(&packet) != response)
+                    error("Error: Packet sent by server should be a response\n");
+
+                // Check which response value the server sent
+                responseValue = getPacketResponseVal(&packet);
+                if(responseValue != OK){
+                    if(responseValue == ErrorA)
+                        printf("Error: User not registered\n");
+                    else if (responseValue == ErrorB)
+                        printf("Error: Wrong username or password\n");
+                    else
+                        printf("Error: Unkown error\n");
+                    break;
+                }
+
+                // ---------- OK zone ----------
+                setClientSignedIn(&clientInfo, true);
+                printf("Signed in successfully\n");
                 break;
-            }
             
-            if(getPacketCommand(&packet) != response){
-                printf("Error: Packet sent by server should be a response\n");
+            case signout:
+                // Check if signed in
+                if(!isSignedIn(&clientInfo)){
+                    printf("You are not signed in\n");
+                    break;
+                }
+
+                // Send packet
+                setSignOutPacket(&packet);
+                sendPacket(clientInfo.sock_fd, &packet);
+
+                // Wait for server response
+                if(recvPacket(clientInfo.sock_fd, &packet) != 1)
+                    error("Error when receiving server response packet\n");
+
+                // Check if packet received is a response
+                if(getPacketCommand(&packet) != response)
+                    error("Error: Packet sent by server should be a response\n");
+
+                // Check which response value the server sent
+                responseValue = getPacketResponseVal(&packet);
+                if(responseValue != OK){
+                    printf("Error: Unkown error\n");
+                    break;
+                }
+
+                // ---------- OK zone ----------
+                printf("Signed out successfully\n");
+                setClientUser(&clientInfo, "");
+                setClientPass(&clientInfo, "");
+                setClientSignedIn(&clientInfo, false);
                 break;
-            }
+            
+            case signup:
+                // Check if signed in
+                if(isSignedIn(&clientInfo)){
+                    printf("You must sign out to sign up with a new account\n");
+                    break;
+                }
 
-            responseValue = getPacketResponseVal(&packet);
-            if(responseValue != OK){
-                if(responseValue == ErrorA)
-                    printf("Error: User not registered\n");
-                else if (responseValue == ErrorB)
-                    printf("Error: Wrong username or password");
-                else
-                    printf("Error: Unkown error");
-                continue;
-            }
+                // Ask user for username and password
+                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username");
+                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password");
+                getStdInput(checkPass, PASSLEN, &clientInfo, "Repeat password");
 
-            // OK zone
-            setClientLoggedIn(&clientInfo, true);
+                // Check password
+                if(strcmp(clientInfo.password,checkPass)!=0){
+                    printf("Passwords entered are not the same\n");
+                    break;
+                }
+
+                // Send packet
+                setSignUpPacket(&packet, clientInfo.username ,clientInfo.password);
+                sendPacket(clientInfo.sock_fd, &packet);
+
+                // Wait for server response
+                if(recvPacket(clientInfo.sock_fd, &packet) != 1)
+                    error("Error when receiving server response packet\n");
+
+                // Check if packet received is a response
+                if(getPacketCommand(&packet) != response)
+                    error("Error: Packet sent by server should be a response\n");
+
+                // Check which response value the server sent
+                responseValue = getPacketResponseVal(&packet);
+                if(responseValue != OK){
+                    if(responseValue == ErrorA)
+                        printf("Error: Username already exists, pick another one\n");
+                    else
+                        printf("Error: Unkown error\n");
+                    break;
+                }
+
+                // ---------- OK zone ----------
+                setClientUser(&clientInfo, "");
+                setClientPass(&clientInfo, "");
+                printf("You signed up successfully. Now, try to sign in.\n");
+                printf("Tip: Remember your password, there is no command to recover it :(\n");
+                break;
+
+            case pull:
+                break;
+
+            case push:
+                break;
+
+            case help:
+                printFile(HELPDIR);
+                break;
+            
+            default:
+                printf("Unknown command: %s \n",typedInCommand);
+                printf("Use command help if needed\n");
+                break;
         }
+        printf("\n");
     }
     close(clientInfo.sock_fd);
     return 0;

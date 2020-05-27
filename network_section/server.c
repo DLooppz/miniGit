@@ -38,14 +38,14 @@ void * clientThread(void *arg){
         if(recvPacket(ptr_clientInfo->sock_fd, &packet) != 1)
             break;
 
-
         // Switch
         switch(packet.header.command){
-            case login:
+            case signin:
                 // Load username and password ptr_clientInfo, which is the struct that describes the client
-                setClientUser(ptr_clientInfo, packet.payload.loginArgs.username);
-                setClientPass(ptr_clientInfo, packet.payload.loginArgs.password);
+                setClientUser(ptr_clientInfo, packet.payload.signArgs.username);
+                setClientPass(ptr_clientInfo, packet.payload.signArgs.password);
 
+                // Check if username is registered (did a signup)
                 if(isRegistered(ptr_clientInfo) != 1){
                     setResponsePacket(&packet, ErrorA);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
@@ -53,20 +53,61 @@ void * clientThread(void *arg){
                     continue;
                 }
 
+                // Check if username/password is correct
                 if(isPassCorrect(ptr_clientInfo) != 1){
                     setResponsePacket(&packet, ErrorB);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
-                    printf("Wrong password\n");
+                    printf("Wrong username/password\n");
                     continue;
                 }
                 
-                // OK zone
-                setClientLoggedIn(ptr_clientInfo,true); // Set client loggedin state
+                // ---------- OK zone ----------
 
+                setClientSignedIn(ptr_clientInfo,true); // Set client signedin state to true
+                // Send packet
                 setResponsePacket(&packet, OK);
                 sendPacket(ptr_clientInfo->sock_fd, &packet);
                 break;
             
+            case signout:
+                // ---------- OK zone ---------- (nothing to check, all was checked by client)
+                setClientSignedIn(ptr_clientInfo, false);
+
+                // Send packet
+                setResponsePacket(&packet, OK);
+                sendPacket(ptr_clientInfo->sock_fd, &packet);
+                break;
+
+            case signup:
+                // Load username and password ptr_clientInfo
+                setClientUser(ptr_clientInfo, packet.payload.signArgs.username);
+                setClientPass(ptr_clientInfo, packet.payload.signArgs.password);
+                
+                // Check if username already exists
+                if(isRegistered(ptr_clientInfo) == 1){
+                    setResponsePacket(&packet, ErrorA);
+                    sendPacket(ptr_clientInfo->sock_fd, &packet);
+                    printf("Username is already registered\n");
+                    continue;
+                }
+
+                // ---------- OK zone ----------
+                // Create folder
+                createUser(ptr_clientInfo);
+
+                // Create file with the password inside
+
+                // Send packet
+                setResponsePacket(&packet, OK);
+                sendPacket(ptr_clientInfo->sock_fd, &packet);
+                break;
+
+            case file:
+                break;
+
+            case block:
+                break;
+
             default:
                 printf("Command not found\n");
                 break;
@@ -115,7 +156,7 @@ int main(){
         ptr_clientInfo->sock_addr = newSocketAddr;
         bzero(ptr_clientInfo->username, sizeof(ptr_clientInfo->username));
         bzero(ptr_clientInfo->password, sizeof(ptr_clientInfo->password));
-        ptr_clientInfo->loggedIn = false;
+        ptr_clientInfo->signedIn = false;
 
         //Call thread
         if( pthread_create(&tid[i], NULL, clientThread, ptr_clientInfo) != 0 )

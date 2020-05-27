@@ -63,12 +63,20 @@ int recvPacket(int socket, struct Packet *packet){
     return 1;
 }
 
-void setLoginPacket(struct Packet *packet, const char *user, const char *pass){
+void setSignUpPacket(struct Packet *packet, const char *user, const char *pass){
     bzero(packet,sizeof(packet));
-    packet->header.command = login;
-    packet->header.length = sizeof(struct Header) + sizeof(struct LoginArgs);
-    strcpy(packet->payload.loginArgs.username, user);
-    strcpy(packet->payload.loginArgs.password, pass);
+    packet->header.command = signup;
+    packet->header.length = sizeof(struct Header) + sizeof(struct SignArgs);
+    strcpy(packet->payload.signArgs.username, user);
+    strcpy(packet->payload.signArgs.password, pass);
+}
+
+void setSignInPacket(struct Packet *packet, const char *user, const char *pass){
+    bzero(packet,sizeof(packet));
+    packet->header.command = signin;
+    packet->header.length = sizeof(struct Header) + sizeof(struct SignArgs);
+    strcpy(packet->payload.signArgs.username, user);
+    strcpy(packet->payload.signArgs.password, pass);
 }
 
 void setResponsePacket(struct Packet *packet, enum ResponseValues responseValue){
@@ -76,6 +84,12 @@ void setResponsePacket(struct Packet *packet, enum ResponseValues responseValue)
     packet->header.command = response;
     packet->header.length = sizeof(struct Header) + sizeof(struct ResponseArgs);
     packet->payload.responseArgs.value = responseValue;
+}
+
+void setSignOutPacket(struct Packet *packet){
+    bzero(packet,sizeof(packet));
+    packet->header.command = signout;
+    packet->header.length = sizeof(struct Header);
 }
 
 enum Command getPacketCommand(struct Packet *packet){
@@ -86,8 +100,8 @@ enum ResponseValues getPacketResponseVal(struct Packet *packet){
     return packet->payload.responseArgs.value;
 }
 
-bool isLoggedIn(clientInfo_t *clientInfo){
-    return clientInfo->loggedIn;
+bool isSignedIn(clientInfo_t *clientInfo){
+    return clientInfo->signedIn;
 }
 
 int isRegistered(clientInfo_t *clientInfo){
@@ -112,17 +126,17 @@ void setClientPass(clientInfo_t *clientInfo, char *password){
     strcpy(clientInfo->password, password);
 }
 
-void setClientLoggedIn(clientInfo_t *clientInfo, bool loggedIn){
-    clientInfo->loggedIn = loggedIn;
+void setClientSignedIn(clientInfo_t *clientInfo, bool signedIn){
+    clientInfo->signedIn = signedIn;
 }
 
 int isPassCorrect(clientInfo_t *clientInfo){
     int ret;
-    char pass[PASSLEN], realPass[PASSLEN], path[PASSLEN + strlen(USERDIR) + strlen(".txt")];
+    char pass[PASSLEN], realPass[PASSLEN], path[PASSLEN + strlen(USERDIR) + strlen(USERFMT)];
     strcpy(pass,clientInfo->password);
     strcpy(path,USERDIR);
     strcat(path, clientInfo->username);
-    strcat(path, ".txt");
+    strcat(path, USERFMT);
     readNthLineFromFile(path, realPass, 0);
     ret = strcmp(pass,realPass);
     if(ret == 0)
@@ -139,7 +153,7 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
     while(1) {
         c = fgetc(fp);
         if(line == nthLine){
-            if(c == '\n'){
+            if(c == '\n' || feof(fp)){
                 fclose(fp);
                 return 1;
             } else
@@ -153,7 +167,71 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
         if (feof(fp)) 
             break; 
     }
-    printf("Theres some error");
+    printf("File doesnt have (n+1) lines\n");
     fclose(fp);
     return -1;
+}
+
+void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
+    if(isSignedIn(clientInfo))
+        printf("%s@miniGit: ",clientInfo->username);
+    else
+        printf("@miniGit: ");
+    if(msg!=NULL && strcmp(msg,"")!=0)
+        printf("%s> ",msg);
+    fgets(dest, maxLength, stdin);
+    if ((strlen(dest) > 0) && (dest[strlen (dest) - 1] == '\n'))
+        dest[strlen (dest) - 1] = '\0';
+}
+
+enum Command typed2enum(char *typedInCommand){ // Attention: if this is modified, enum Command should also be modified
+    if(strcmp(typedInCommand,"signin")==0 || strcmp(typedInCommand,"login")==0)
+        return signin;
+    else if(strcmp(typedInCommand,"signout")==0 || strcmp(typedInCommand,"logout")==0)
+        return signout;
+    else if(strcmp(typedInCommand,"signup")==0 || strcmp(typedInCommand,"register")==0)
+        return signup;
+    else if(strcmp(typedInCommand,"pull")==0)
+        return pull;
+    else if(strcmp(typedInCommand,"push")==0)
+        return push;
+    else if(strcmp(typedInCommand,"help")==0)
+        return help;
+}
+
+int createUser(clientInfo_t *clientInfo){
+    char dirPath[USERLEN + strlen(USERDIR)], filePath[USERLEN + strlen(USERDIR) + strlen(USERFMT)];
+    struct stat st = {0};
+    FILE *fp;
+
+    strcpy(dirPath, USERDIR);
+    strcat(dirPath, clientInfo->username);
+
+    strcpy(filePath, USERDIR);
+    strcat(filePath, clientInfo->username);
+    strcat(filePath, USERFMT);
+
+    // Create folder
+    if (stat(dirPath, &st) == -1) {
+        mkdir(dirPath, 0777);
+    }
+
+    // Create file and insert the password
+    fp = fopen(filePath, "w+");
+    if (fp != NULL){
+        fputs(clientInfo->password, fp);
+        fclose(fp);
+    }
+
+    return 1;
+}
+
+void printFile(const char *filePath){
+    FILE *fp;
+    char c;
+    fp=fopen(filePath,"r");
+    while((c=fgetc(fp))!=EOF) {
+        printf("%c",c);
+    }
+    fclose(fp);
 }
