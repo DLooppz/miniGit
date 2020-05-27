@@ -9,7 +9,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-
 void findFile(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
 {
     /* Function that finds path of hashToFind and stores it in pathFound */
@@ -184,7 +183,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
 
     // Compute SHA1 of header + content of file
     computeSHA1(contentPlusHeader,hashName_out);
-    
+
     // To see header+content uncomment:
     // printf("\nHeader+Content: %s\n\n",contentPlusHeader);
 
@@ -210,7 +209,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
             }
         }
         // else
-            // printf("Blob object of '%s' already exists. Not created. (Hash: %s)\n",path,hashName_out);
+        //     printf("Blob object of '%s' already exists. Not created. (Hash: %s)\n",path,hashName_out);
     }
 
     // Close and free 
@@ -219,8 +218,41 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
     free(contentPlusHeader);
 }
 
+void updateIndex(char* hash, char* path, char type){
 
-void addAllFiles(char* basePath,char* prevFolder, const int level)
+    int fd;
+
+    // Open index in append mode (Create if doesnt exist)
+    fd = open("./.miniGit/index", O_RDWR | O_CREAT | O_APPEND, 0666);
+    if (fd < 0) perror("Error opening index: "), exit(1);
+    
+    // Write type 
+    switch (type)
+    {
+    case 't':
+        if (write(fd, "D ", strlen("D ")) < 1) perror("Error writing ' dir ' to index: "), exit(1);
+        break;
+    case 'b':
+        if (write(fd, "F ", strlen("F ")) < 1) perror("Error writing ' file ' to index: "), exit(1);
+        break;
+    default:
+        printf("Type error updating index\n"), exit(1);
+        break;
+    }
+
+    // Write hash
+    if (write(fd, hash, 2*SHA_DIGEST_LENGTH) < 1) perror("Error writing hash to index: "), exit(1);
+    if (write(fd, " ", 1) < 1) perror("Error writing ' ' to index: "), exit(1);
+
+    // Write path
+    if (write(fd, path, strlen(path)) < 1) perror("Error writing path to index: "), exit(1);
+    if (write(fd, "\n", strlen("\n")) < 1) perror("Error writing path to index: "), exit(1);
+
+    
+    if (close(fd) == -1) perror("Error closing index: "), exit(1);
+}
+
+void addAllFiles(char* basePath,char* prevFolder, int level)
 {
     /* 
     Function that adds every file behind basePath. In first call:
@@ -232,79 +264,61 @@ void addAllFiles(char* basePath,char* prevFolder, const int level)
     struct dirent *dp;
     DIR *dir = opendir(basePath);
     char tempTreeFileName[1000];
-    int fd;
-    
+    int fd_tree;
+
     // Hash blob objects ------------------------------------------------
     if (!dir)
     {
-        // Create blob object
+        // Create blob object and update index
         char hashBlob[2*SHA224_DIGEST_LENGTH];
         hashObject('b',basePath,basePath,hashBlob,"-w");
+        updateIndex(hashBlob,basePath,'b');
 
         // Add hash to tree father
         if (level > 1)
         {
             strcpy(tempTreeFileName,prevFolder);
             strcat(tempTreeFileName,"/tempTree");
-            fd = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-            if (fd < 0){
-                perror("Error opening './tempTree': ");
-                exit(1);
-            }
-            if (write(fd, hashBlob, strlen(hashBlob)) < 1)            {
-                perror("Error writing hash into './tempTree': ");
-                exit(1);
-            }
-            if (write(fd, "\n", 1) < 1)            {
-                perror("Error writing ' ' into './tempTree': ");
-                exit(1);
-            }
-            if (close(fd) == -1){
-                perror("Error closing './tempTree' 1: ");
-                exit(1);
-            }
+            
+            fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+            if (fd_tree < 0) perror("Error opening './tempTree': "), exit(1);
+            
+            if (write(fd_tree, hashBlob, strlen(hashBlob)) < 1) perror("Error writing hash into './tempTree': "), exit(1);
+            if (write(fd_tree, "\n", 1) < 1) perror("Error writing ' ' into './tempTree': "), exit(1);
+            
+            if (close(fd_tree) == -1) perror("Error closing './tempTree' 1: "), exit(1);
         }
         return;
     }
 
-    // "dir" is a directory: create tree if level > 0
+    // "dir" is a directory: create trees for folders if level > 0
     if (level > 0){
         strcpy(tempTreeFileName,basePath);
         strcat(tempTreeFileName,"/tempTree");
     }
 
+    // Move over entries in basePath
     while ((dp = readdir(dir)) != NULL)
     {
         if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0 && strcmp(dp->d_name, ".miniGit") != 0)
         {
-            // These are files in dir: update tempTreeFile if level > 0
+            // These are entries in dir: update tempTreeFile if level > 0
             if (level > 0)
             {
-                fd = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-                if (fd < 0){
-                    perror("Error opening './tempTree' for entrie: ");
-                    exit(1);
-                }
-                if (write(fd, dp->d_name, strlen(dp->d_name)) < 1){
-                    perror("Error writing entrie into './tempTree': ");
-                    exit(1);
-                }
+                fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+                if (fd_tree < 0) perror("Error opening './tempTree' for entrie: "), exit(1);
+                
+                // Write file name in temporal tree file
+                if (write(fd_tree, dp->d_name, strlen(dp->d_name)) < 1) perror("Error writing entrie into './tempTree': "),exit(1);
+                
+                // Write type (dir or file)
                 if (dp->d_type == DT_DIR)
-                    if (write(fd, " dir ", strlen(" dir ")) < 1){
-                        perror("Error writing ' dir ' into './tempTree': ");
-                        exit(1);
-                    }
-                if (dp->d_type != DT_DIR){
-                    if (write(fd, " file ", strlen(" file ")) < 1){
-                        perror("Error writing ' file ' into './tempTree': ");
-                        exit(1);
-                    }
-                }
+                    if (write(fd_tree, " dir ", strlen(" dir ")) < 1) perror("Error writing ' dir ' into './tempTree': "),exit(1);
+                if (dp->d_type != DT_DIR)
+                    if (write(fd_tree, " file ", strlen(" file ")) < 1) perror("Error writing ' file ' into './tempTree': "),exit(1);
                     
-                if (close(fd) == -1){
-                    perror("Error closing './tempTree' 2: ");
-                    exit(1);
-                }
+                // Clos temporal tree file
+                if (close(fd_tree) == -1) perror("Error closing './tempTree' 2: "),exit(1);
             }
             
             strcpy(path, basePath);
@@ -314,7 +328,7 @@ void addAllFiles(char* basePath,char* prevFolder, const int level)
         }
     }
 
-    // End of dir: compute hash for tree and create TreeObject if level > 0
+    // No more entries: End of dir. Compute hash for tree and create TreeObject if level > 0
     if (level > 0)
     {
         // Convert int level to string
@@ -322,67 +336,43 @@ void addAllFiles(char* basePath,char* prevFolder, const int level)
         sprintf(strLevel, "%d", level-1);
 
         // Mark trees with their level at the end
-        fd = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-        if (fd < 0){
-            perror("Error opening './tempTree' for level: ");
-            exit(1);
-        }
-        if (write(fd, "\nLevel ", strlen("\n")) < 1){
-            perror("Error writing '\\n' into './tempTree': ");
-            exit(1);
-        }
-        if (write(fd, strLevel, strlen(strLevel)) < 1){
-            perror("Error writing level into './tempTree': ");
-            exit(1);
-        }
-        if (close(fd) == -1){
-            perror("Error closing './tempTree' 3: ");
-            exit(1);
-        }
+        fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+        if (fd_tree < 0) perror("Error opening './tempTree' for level: "),exit(1);
+        
+        if (write(fd_tree, "Level ", strlen("\nLevel ")) < 1) perror("Error writing '\\n' into './tempTree': "),exit(1);
+        if (write(fd_tree, strLevel, strlen(strLevel)) < 1) perror("Error writing level into './tempTree': "),exit(1);
+        
+        if (close(fd_tree) == -1) perror("Error closing './tempTree' 3: "),exit(1);
 
-        // Computhe folder hash and add to /objects
+        // Compute folder hash and add to /objects
         char hashTree[2*SHA224_DIGEST_LENGTH];
         hashObject('t',tempTreeFileName,basePath,hashTree,"-w");
-        if (remove(tempTreeFileName) == -1){
-            perror("Error trying to remove './tempTree': ");
-            exit(1);
-        }
+        
+        // Update index with folder and its hash
+        updateIndex(hashTree,basePath,'t');
+        
+        // Remove temporal tree file
+        if (remove(tempTreeFileName) == -1) perror("Error trying to remove './tempTree': "),exit(1);
 
         // Update treeFather with hash of this tree if level > 1
         if (level >1)
         {
             strcpy(tempTreeFileName,prevFolder);
             strcat(tempTreeFileName,"/tempTree");
-            fd = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-            if (fd < 0){
-                perror("Error opening './tempTree': ");
-                exit(1);
-            }
-            if (write(fd, hashTree, strlen(hashTree)) < 1)            {
-                perror("Error writing hash into './tempTree': ");
-                exit(1);
-            }
-            if (write(fd, "\n", 1) < 1)            {
-                perror("Error writing ' ' into './tempTree': ");
-                exit(1);
-            }
-            if (close(fd) == -1){
-                perror("Error closing './tempTree' 1: ");
-                exit(1);
-            }
+            fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+            if (fd_tree < 0) perror("Error opening './tempTree': "), exit(1);
+
+            if (write(fd_tree, hashTree, strlen(hashTree)) < 1) perror("Error writing hash into './tempTree': "),exit(1);
+            if (write(fd_tree, "\n", 1) < 1) perror("Error writing ' ' into './tempTree': "),exit(1);
+
+            if (close(fd_tree) == -1) perror("Error closing './tempTree' 1: "),exit(1);
         }
     }
     closedir(dir);
 }
 
-
-void updateIndex(){
-
-
-
-}
-
-int main(int argc, char *argv[]){
+void add(int argc, char *argv[])
+{
 
     // Bad usage
     if (argc < 2){
@@ -390,7 +380,7 @@ int main(int argc, char *argv[]){
         printf("Usage: './minimalAdd .' -- All files and folders will be add\n");
         exit(1);
     }
-    
+
     int n_files = argc - 1;
 
     // Bad usage
@@ -399,6 +389,9 @@ int main(int argc, char *argv[]){
         printf("Usage: './minimalAdd .' -- All files and folders will be add\n");
         exit(1);
     }
+
+    // Try to delete old index file
+    if (remove("./.miniGit/index") == -1) perror("Error trying to remove old './.miniGIT/index': ");
 
     // Add for some files
     if (n_files >= 1 && (strcmp(argv[1],".")!=0)){
@@ -413,5 +406,12 @@ int main(int argc, char *argv[]){
         addAllFiles(".","",0);
     }
 
+
+}
+
+
+int main(int argc, char *argv[]){
+
+    add(argc,argv);
     return 0;
 }
