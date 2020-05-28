@@ -2,10 +2,12 @@
 #define PROTOCOL_H_
 
 #define SERVERPORT 7000
-#define BUFFSIZE 512
-#define COMMANDLEN 64
+#define BLOCKLEN 1024
+#define FILELEN 128
+#define COMMANDLEN 128
 #define USERLEN 64
 #define PASSLEN 64
+#define PATHLEN 1024
 #define USERDIR "users/"
 #define HELPDIR "lib/help.txt"
 #define USERFMT ".txt"
@@ -21,6 +23,7 @@
 #include<dirent.h>
 #include<sys/stat.h>
 #include<termios.h>
+#include <unistd.h>
 
 // Declaration of variables, structs, enums, ...
 typedef struct {
@@ -31,16 +34,19 @@ typedef struct {
     bool signedIn;
 } clientInfo_t;
 
-enum Command {  // Attention: if this is modified, function typed2enum should also be modified
+enum Command {      // Attention: if this is modified, function typed2enum should also be modified
     signin,
     signout,
     signup,
     response,
     file,
     block,
-    push,       // no packets with this command, but its useful for using a switch in client.c
-    pull,       // no packets with this command, but its useful for using a switch in client.c
-    help        // no packets with this command, but its useful for using a switch in client.c
+    push,
+    pull,
+    help,           // no packets with this command, but its useful for using a switch in client.c
+    stop,           // no packets with this command, but its useful for using a switch in client.c
+    clearScreen,    // no packets with this command, but its useful for using a switch in client.c
+    ls              // no packets with this command, but its useful for using a switch in client.c
 };
 
 enum ResponseValues {
@@ -64,13 +70,14 @@ struct __attribute__((packed)) ResponseArgs{
 };
 
 struct __attribute__((packed)) FileArgs{
-    char name[128];
-    uint32_t totalLength;
+    char name[FILELEN];
+    uint32_t fileSize;
+    bool lastFile;
 };
 
 struct __attribute__((packed)) BlockArgs{
     uint32_t blockLength;
-    char block[1024];
+    char blockData[BLOCKLEN];
 };
 
 struct __attribute__((packed)) Packet{
@@ -92,6 +99,9 @@ void setSignUpPacket(struct Packet *packet, const char *user, const char *pass);
 void setSignInPacket(struct Packet *packet, const char *user, const char *pass);
 void setResponsePacket(struct Packet *packet, enum ResponseValues responseValue);
 void setSignOutPacket(struct Packet *packet);
+void setPushPacket(struct Packet *packet);
+void setFilePacket(struct Packet *packet, const char *fileName, uint32_t fileSize, bool lastFile);
+void setBlockPacket(struct Packet *packet, uint32_t blockLength, const char *blockData);
 enum Command getPacketCommand(struct Packet *packet);
 enum ResponseValues getPacketResponseVal(struct Packet *packet);
 
@@ -105,6 +115,13 @@ int isPassCorrect(clientInfo_t *clientInfo);
 int readNthLineFromFile(const char *srcPath, char *dest, int nthLine);
 void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg);
 int createUser(clientInfo_t *clientInfo);
+int createDir(const char *dirName);
 enum Command typed2enum(char *typedInCommand);
 void printFile(const char *filePath);
+void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude);
+void sendFile(int socket, struct Packet *packet, const char *filename, int exclude);
+void recvDir(int socket, struct Packet *packet, const char *rootDir);
+void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath);
+int countOccurrences(char c, const char *string);
+int remove_directory(const char *path, const char *exclude);
 #endif
