@@ -276,12 +276,16 @@ void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int le
     DIR *dir;
     struct dirent *entry;
 
+    // When client pushes, the client may have deleted by accident the folder, so create it, just in case
+    if(level == 0){
+        mkdir(dirName, 0777);
+        exclude = strlen(dirName) + 1; // plus 1 because of '/'
+    }
+
     // Check if dir can be opened
     if (!(dir = opendir(dirName)))
         return;
-    
-    if(level == 0)
-        exclude = strlen(dirName) + 1; // plus 1 because of '/'
+        
 
     // Loop over all files and subdirs of current dir
     while ((entry = readdir(dir)) != NULL) {
@@ -344,6 +348,8 @@ void recvDir(int socket, struct Packet *packet, const char *rootDir){
     char fileName[FILELEN], filePath[FILELEN];
     uint32_t fileSize;
 
+    remove_directory(rootDir, rootDir);
+
     do{
         recvPacket(socket, packet);
 
@@ -369,18 +375,29 @@ void recvDir(int socket, struct Packet *packet, const char *rootDir){
 void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath){
     uint32_t toReceive = fileSize;
     FILE *fp;
-    fp = fopen(filePath,"w+");
-    char *token, *rest = filePath;
 
+    // Create folders if needed
+    char aux[FILELEN];
+    strcpy(aux,filePath);
+    char *token, *rest = aux, createDir[FILELEN];
+    int i = 0,  nFolders = countOccurrences('/', filePath), ret;
+    strcpy(createDir,"");
+    while((token = strtok_r(rest, "/", &rest))){
+        i++;
+        strcat(createDir,token);
+        // Create folder if doesnt exists
+        ret = mkdir(createDir, 0777);
+        if(i==nFolders) break;
+        strcat(createDir,"/");
+    }
+
+    // Open file
+    fp = fopen(filePath,"w+");
     if(fp == NULL){
         printf("Error in opening file\n");
         return;
     }
-
-    int nFolders = countOccurrences('/', filePath);
-
-    while((token = strtok_r(rest, "/", &rest)))
-        printf("%s\n", token); 
+    
 
     while(toReceive){
         recvPacket(socket, packet);
@@ -405,4 +422,47 @@ int countOccurrences(char c, const char *string){
             ret++;
     }
     return ret;
+}
+
+int remove_directory(const char *path, const char *exclude) {
+    DIR *d = opendir(path);
+    size_t path_len = strlen(path);
+    int r = -1;
+    if (d) {
+        struct dirent *p;
+
+        r = 0;
+        while (!r && (p=readdir(d))) {
+            int r2 = -1;
+            char *buf;
+            size_t len;
+
+            /* Skip the names "." and ".." as we don't want to recurse on them. */
+            if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, ".."))
+                continue;
+
+            len = path_len + strlen(p->d_name) + 2; 
+            buf = malloc(len);
+
+            if (buf) {
+                struct stat statbuf;
+
+                snprintf(buf, len, "%s/%s", path, p->d_name);
+                if (!stat(buf, &statbuf)) {
+                    if (S_ISDIR(statbuf.st_mode))
+                        r2 = remove_directory(buf, exclude);
+                    else
+                        r2 = unlink(buf);
+                }
+                free(buf);
+            }
+            r = r2;
+        }
+        closedir(d);
+    }
+
+    if (!r && strcmp(path,exclude)!=0)
+        r = rmdir(path);
+
+    return r;
 }

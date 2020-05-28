@@ -85,6 +85,7 @@ int main(){
                 }
 
                 // ---------- OK zone ----------
+                mkdir(clientInfo.username, 0777);
                 setClientSignedIn(&clientInfo, true);
                 printf("Signed in successfully\n");
                 printf("\n");

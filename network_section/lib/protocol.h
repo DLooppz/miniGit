@@ -23,6 +23,7 @@
 #include<dirent.h>
 #include<sys/stat.h>
 #include<termios.h>
+#include <unistd.h>
 
 // Declaration of variables, structs, enums, ...
 typedef struct {
@@ -122,4 +123,5 @@ void sendFile(int socket, struct Packet *packet, const char *filename, int exclu
 void recvDir(int socket, struct Packet *packet, const char *rootDir);
 void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath);
 int countOccurrences(char c, const char *string);
+int remove_directory(const char *path, const char *exclude);
 #endif
