@@ -23,12 +23,11 @@ void * clientThread(void *arg){
     int ret;
     clientInfo_t * ptr_clientInfo;
     struct Packet packet;
+    bool stopClientThread = false;
+    char rootPath[FILELEN];
 
     // Thread information structure
     ptr_clientInfo = (clientInfo_t *) arg; 
-    
-    // Buffer
-    char buffer[BUFFSIZE];
 
     printf("New thread created\n");
     printf("Socket port: %d\n",ptr_clientInfo->sock_addr.sin_port);  
@@ -50,7 +49,7 @@ void * clientThread(void *arg){
                     setResponsePacket(&packet, ErrorA);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
                     printf("User not registered\n");
-                    continue;
+                    break;
                 }
 
                 // Check if username/password is correct
@@ -58,7 +57,7 @@ void * clientThread(void *arg){
                     setResponsePacket(&packet, ErrorB);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
                     printf("Wrong username/password\n");
-                    continue;
+                    break;
                 }
                 
                 // ---------- OK zone ----------
@@ -88,34 +87,33 @@ void * clientThread(void *arg){
                     setResponsePacket(&packet, ErrorA);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
                     printf("Username is already registered\n");
-                    continue;
+                    break;
                 }
 
                 // ---------- OK zone ----------
-                // Create folder
+                // Create folder and file with the password inside
                 createUser(ptr_clientInfo);
-
-                // Create file with the password inside
 
                 // Send packet
                 setResponsePacket(&packet, OK);
                 sendPacket(ptr_clientInfo->sock_fd, &packet);
                 break;
 
-            case file:
-                break;
-
-            case block:
+            case push:
+                strcpy(rootPath, USERDIR);
+                strcat(rootPath,ptr_clientInfo->username);
+                recvDir(ptr_clientInfo->sock_fd, &packet, rootPath);
                 break;
 
             default:
                 printf("Command not found\n");
                 break;
         }
+        if(stopClientThread) break;
     }
 
     // Free memory and close sockets
-    printf("Exit thread - The ports being used was %d\n",ptr_clientInfo->sock_addr.sin_port);
+    printf("Exit thread - The port being used was %d\n",ptr_clientInfo->sock_addr.sin_port);
     close(ptr_clientInfo->sock_fd);
     free(ptr_clientInfo);
 

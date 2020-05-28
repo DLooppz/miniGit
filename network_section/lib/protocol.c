@@ -92,6 +92,29 @@ void setSignOutPacket(struct Packet *packet){
     packet->header.length = sizeof(struct Header);
 }
 
+void setPushPacket(struct Packet *packet){
+    bzero(packet,sizeof(packet));
+    packet->header.command = push;
+    packet->header.length = sizeof(struct Header);
+}
+
+void setFilePacket(struct Packet *packet, const char *fileName, uint32_t fileSize, bool lastFile){
+    bzero(packet,sizeof(packet));
+    packet->header.command = file;
+    packet->header.length = sizeof(struct Header) + sizeof(struct FileArgs);
+    strcpy(packet->payload.fileArgs.name, fileName);
+    packet->payload.fileArgs.fileSize = fileSize ;
+    packet->payload.fileArgs.lastFile = lastFile ;
+}
+
+void setBlockPacket(struct Packet *packet, uint32_t blockLength, const char *blockData){
+    bzero(packet,sizeof(packet));
+    packet->header.command = block;
+    packet->header.length = sizeof(struct Header) + sizeof(struct BlockArgs);
+    packet->payload.blockArgs.blockLength = blockLength;
+    strcpy(packet->payload.blockArgs.blockData, blockData);
+}
+
 enum Command getPacketCommand(struct Packet *packet){
     return packet->header.command;
 }
@@ -197,11 +220,16 @@ enum Command typed2enum(char *typedInCommand){ // Attention: if this is modified
         return push;
     else if(strcmp(typedInCommand,"help")==0)
         return help;
+    else if(strcmp(typedInCommand,"exit")==0 || strcmp(typedInCommand,"stop")==0)
+        return stop;
+    else if(strcmp(typedInCommand,"clear")==0)
+        return clearScreen;
+    else if(strcmp(typedInCommand,"ls")==0)
+        return ls;
 }
 
 int createUser(clientInfo_t *clientInfo){
     char dirPath[USERLEN + strlen(USERDIR)], filePath[USERLEN + strlen(USERDIR) + strlen(USERFMT)];
-    struct stat st = {0};
     FILE *fp;
 
     strcpy(dirPath, USERDIR);
@@ -212,9 +240,8 @@ int createUser(clientInfo_t *clientInfo){
     strcat(filePath, USERFMT);
 
     // Create folder
-    if (stat(dirPath, &st) == -1) {
-        mkdir(dirPath, 0777);
-    }
+    if(createDir(dirPath) == -1)
+        return -1;
 
     // Create file and insert the password
     fp = fopen(filePath, "w+");
@@ -226,6 +253,15 @@ int createUser(clientInfo_t *clientInfo){
     return 1;
 }
 
+int createDir(const char *dirName){
+    struct stat st = {0};
+    if (stat(dirName, &st) == -1) {
+        mkdir(dirName, 0777);
+        return 1;
+    }
+    return -1;
+}
+
 void printFile(const char *filePath){
     FILE *fp;
     char c;
@@ -234,4 +270,139 @@ void printFile(const char *filePath){
         printf("%c",c);
     }
     fclose(fp);
+}
+
+void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude){
+    DIR *dir;
+    struct dirent *entry;
+
+    // Check if dir can be opened
+    if (!(dir = opendir(dirName)))
+        return;
+    
+    if(level == 0)
+        exclude = strlen(dirName) + 1; // plus 1 because of '/'
+
+    // Loop over all files and subdirs of current dir
+    while ((entry = readdir(dir)) != NULL) {
+        // If entry is a dir
+        if (entry->d_type == DT_DIR) {
+            char path[PATHLEN];
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+            snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
+            if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
+            sendPrintDir(socket, packet, path, level + 1, send, print, exclude); // recursion
+        } 
+        // Else if entry is a file
+        else {
+            if(print) printf("%*s- %s\n", (level * 2), "", entry->d_name);
+            if(send){
+                char fileName[PATHLEN];
+                snprintf(fileName, sizeof(fileName), "%s/%s", dirName, entry->d_name);
+                //Send file
+                sendFile(socket, packet, fileName, exclude);
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if(level == 0 && send){
+        // Send file packet telling that theres no more files to send
+        setFilePacket(packet, "", 0, true);
+        sendPacket(socket, packet);
+    }
+}
+
+void sendFile(int socket, struct Packet *packet, const char *fileName, int exclude){
+    printf("File to send: %s\n",fileName);
+    uint32_t fileSize;
+    FILE *fp;
+    char buffer[BLOCKLEN + 1];
+    
+    // Open file and get file size
+    fp = fopen(fileName, "r");
+    fseek(fp, 0L, SEEK_END);
+    fileSize = ftell(fp);
+    rewind(fp);
+    printf("File size [bytes]: %d\n",fileSize);
+
+    // Send file packet
+    setFilePacket(packet, fileName + exclude, fileSize, false);
+    sendPacket(socket, packet);
+
+    // Send block packets
+    while(fgets(buffer, BLOCKLEN, fp) != NULL){
+        setBlockPacket(packet, strlen(buffer), buffer);
+        sendPacket(socket, packet);
+    }
+}
+
+void recvDir(int socket, struct Packet *packet, const char *rootDir){
+    bool lastFile;
+    char fileName[FILELEN], filePath[FILELEN];
+    uint32_t fileSize;
+
+    do{
+        recvPacket(socket, packet);
+
+        if(packet->header.command != file){
+            printf("Error: A file type packet was expected\n");
+            return;
+        }
+
+        lastFile = packet->payload.fileArgs.lastFile;
+        strcpy(fileName, packet->payload.fileArgs.name);
+        fileSize = packet->payload.fileArgs.fileSize;
+
+        if(!lastFile){
+            strcpy(filePath, rootDir);
+            strcat(filePath, "/");
+            strcat(filePath, fileName);
+            recvFile(socket, packet, fileSize, filePath);
+        }
+
+    } while (!lastFile);
+}
+
+void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath){
+    uint32_t toReceive = fileSize;
+    FILE *fp;
+    fp = fopen(filePath,"w+");
+    char *token, *rest = filePath;
+
+    if(fp == NULL){
+        printf("Error in opening file\n");
+        return;
+    }
+
+    int nFolders = countOccurrences('/', filePath);
+
+    while((token = strtok_r(rest, "/", &rest)))
+        printf("%s\n", token); 
+
+    while(toReceive){
+        recvPacket(socket, packet);
+        
+        // Check packet type
+        if(packet->header.command != block){
+            printf("Error: A block type packet was expected\n");
+            return;
+        }
+
+        fprintf(fp, "%s", packet->payload.blockArgs.blockData);
+
+        toReceive -= packet->payload.blockArgs.blockLength;
+    }
+    fclose(fp);
+}
+
+int countOccurrences(char c, const char *string){
+    int i, ret = 0, n = strlen(string);
+    for(i = 0; i < n ; i++){
+        if(string[i]==c)
+            ret++;
+    }
+    return ret;
 }
