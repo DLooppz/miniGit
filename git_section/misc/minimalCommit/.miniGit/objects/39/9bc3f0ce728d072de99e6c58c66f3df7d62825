@@ -1,3 +1,4 @@
+blob 25536
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,16 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <assert.h>
+#include "utils.h"
+
+#define TREE_MAX_SIZE 14000
+#define PATHS_MAX_SIZE 512
+#define INDEX_PATH "./.miniGit/index"
+#define HEAD_PATH "./.miniGit/HEAD"
+#define OBJECTS_PATH "./.miniGit/objects/"
+#define TEMP_COMMIT_TREE_PATH "./.miniGit/tempCommitTree"
+#define TEMP_COMMIT_PATH "./.miniGit/tempCommit"
 
 void findFile(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
 {
@@ -64,7 +75,7 @@ void computeSHA1(char* text, char* hash_output){
     char hex_hashed_text[2*SHA_DIGEST_LENGTH] = {0,};
 
     // Hash the file 
-    SHA1(text,sizeof(text),hashed_text);
+    SHA1(text,strlen(text),hashed_text);
 
     // Convert to hex
     for(int i=0;i<SHA_DIGEST_LENGTH;i++){
@@ -83,7 +94,7 @@ void addObjectFile(char* hashName, char* contentPlusHeader){
     strncpy(hashToAdd,hashName,2*SHA_DIGEST_LENGTH);
     
     // Dir name
-    char dirName[25] = ".miniGit/objects/";
+    char dirName[25] = OBJECTS_PATH;
     char aux[3];
     for (int i=0;i<2;i++){
         aux[i] = hashToAdd[i];
@@ -110,7 +121,7 @@ void addObjectFile(char* hashName, char* contentPlusHeader){
     strcat(fullPath,"/");
     strcat(fullPath,croppedHash);
 
-    file_pointer  = fopen (fullPath, "w");
+    file_pointer  = fopen (fullPath, "wb");
     fprintf(file_pointer, "%s", contentPlusHeader);
     fclose(file_pointer);
 }
@@ -142,7 +153,7 @@ void buildHeader(char type, long contentSize, char* header_out){
 
 void hashObject(char type, char* path, char* fileName, char* hashName_out, char* creationFlag){
     /* 
-    char type: 'b':blob ; 't': tree
+    char type: 'b':blob ; 't': tree ; 'c': commit
     char* path: path to file
     char* hashName_out: SHA1 computed hash of header + content of file
     char* creationFlag: "-w": create object ; Other: don't create
@@ -192,7 +203,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
-        findFile(".miniGit/objects/",hashName_out,NULL,&findFlag);
+        findFile(OBJECTS_PATH,hashName_out,NULL,&findFlag);
         
         // Create if doesnt exist
         if (findFlag != 1){
@@ -204,18 +215,368 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
             case 't':
                 printf("Tree object of '%s' added. (Hash: %s)\n",fileName,hashName_out);
                 break;
+            case 'c':
+                printf("Commit object added. (Hash: %s)\n",hashName_out);
+                break;
             default:
                 break;
             }
         }
-        // else
-        //     printf("Blob object of '%s' already exists. Not created. (Hash: %s)\n",path,hashName_out);
     }
 
     // Close and free 
     fclose(original_file);
     free(content);
     free(contentPlusHeader);
+}
+
+void hashObjectFromString(char type, char* content, char* hashName_out, char* creationFlag){
+
+    char header[75];
+    char contentPlusHeader[strlen(content)+75];
+    
+    // Build header 
+    buildHeader(type,strlen(content) - 1,header);
+
+    // Concat content + header
+    strcpy(contentPlusHeader,header);
+    strcat(contentPlusHeader,content);
+
+    // Compute SHA1 of header + content
+    computeSHA1(contentPlusHeader,hashName_out);
+
+    // Creation flag given
+    if (strcmp(creationFlag,"-w") == 0){
+        
+        // Check if object already exist (findFlag will be 1)
+        int findFlag = 0;
+        findFile(OBJECTS_PATH,hashName_out,NULL,&findFlag);
+        
+        // Create if doesnt exist
+        if (findFlag != 1){
+            addObjectFile(hashName_out, contentPlusHeader);
+            switch (type){
+            case 'b':
+                printf("Blob object added. (Hash: %s)\n",hashName_out);
+                break;
+            case 't':
+                printf("Tree object added. (Hash: %s)\n",hashName_out);
+                break;
+            case 'c':
+                printf("Commit object added. (Hash: %s)\n",hashName_out);
+                break;
+            default:
+                fprintf(stderr,"Error in hashObjectFromString. Bad type\n");
+                exit(1);
+            }
+        }
+    }
+
+}
+
+int getFieldsFromIndex(char* index_line, char* hash_out, char* path_out){
+    /* 
+    Get hash and path from index_line.
+    No need to free memory from outside.
+    Returns file type "F" or "D"
+    */
+            
+    char *token, *string, *tofree;
+    char *line[3];
+    int i,ret;
+
+    // Extracted from man 3 strsep
+    tofree = string = strdup(index_line);
+    assert(string != NULL);
+
+    // Get type, hash and path (Hardcoded three tokens ALWAYS. Error if not)
+    i = 0;
+    while ((token = strsep(&string, " ")) != NULL){
+        line[i] = token;
+        i++;
+    }
+
+    // Store fields and return file type
+    strcpy(hash_out,line[1]);
+    strcpy(path_out,line[2]);
+
+    if ( strcmp(line[0],"F") == 0 )
+        ret = 0;
+    else if ( strcmp(line[0],"D") == 0 )
+        ret = 1;
+    else
+        printf("Error in index file. Corrupted!\n"), exit(EXIT_FAILURE);
+
+    // free allocated mem
+    free(tofree);
+    return ret;
+}
+
+void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user){
+    /*
+    Function that returns fields of commit object.
+    If NULL is passed as argument of some fields, they're not stored
+    */
+
+    FILE* commit;
+    char buffer[PATHS_MAX_SIZE];
+    char *token, *string, *tofree;
+    int i;
+
+    commit = fopen (commitPath , "rb");
+    if(!commit) perror("Error opening commit: "),exit(1);
+
+    // Get each line
+    for (i=0;i<4;i++)
+    {
+        fgets(buffer, PATHS_MAX_SIZE, commit);
+        switch (i)
+        {
+            // Header
+            case 0:
+                break;
+
+            // Tree    
+            case 1:
+                
+                tofree = string = strdup(buffer);
+                assert(string != NULL);
+                
+                token = strsep(&string, " ");
+                if (tree != NULL)
+                    strcpy(tree,string);
+                free(tofree);
+                break;
+
+            // Commit    
+            case 2:
+
+                tofree = string = strdup(buffer);
+                assert(string != NULL);
+
+                token = strsep(&string, " ");
+                if (prevCommit != NULL)
+                    strcpy(prevCommit,string);
+                free(tofree);
+                break;
+
+            // Commit    
+            case 3:
+
+                tofree = string = strdup(buffer);
+                assert(string != NULL);
+
+
+                token = strsep(&string, " ");
+                if (user != NULL)
+                    strcpy(user,string);
+                free(tofree);
+                break;
+        }       
+    }
+
+    fclose(commit);
+}
+
+
+int getFileLevel(char* path){
+
+    /* Returns file level in working dir as an int (First level: 0) */
+    char *token, *string, *tofree;
+    int level = -1;
+
+    tofree = string = strdup(path);
+    assert(string != NULL);
+
+    while ((token = strsep(&string, "/")) != NULL){
+        level++;
+    }
+    
+
+    free(tofree);
+    free(string);
+    return level-1;
+}
+
+void getNameFromPath(char* path, char* name){
+
+    /* Returns file name (last level in path) */
+    char *token, *string, *tofree;
+    char out[100];
+
+    tofree = string = strdup(path);
+    assert(string != NULL);
+
+    while ((token = strsep(&string, "/")) != NULL){
+        strcpy(out,token);
+    }
+
+    strcpy(name,out);
+    free(tofree);
+}
+
+void buildCommitTree(char* commitTreeHash)
+{
+    /* The commit Tree is complete with the level zero files and dirs in index */
+
+    FILE *index;
+    char treeContent[TREE_MAX_SIZE];
+    char buffer[PATHS_MAX_SIZE],type;
+    char hash[2*SHA_DIGEST_LENGTH], path[PATHS_MAX_SIZE], filename[PATHS_MAX_SIZE]; /* filename has a '\n' at the end. It is cropped above */
+    
+    index = fopen(INDEX_PATH,"rb");
+
+    while(fgets(buffer, PATHS_MAX_SIZE, index))
+    {
+        // FILE
+        if ( getFieldsFromIndex(buffer,hash,path) == 0 ){
+            
+            // If file is in level 0, update tree
+            if (getFileLevel(path) == 0)
+            {
+                getNameFromPath(path,filename);
+
+                // Update entrie
+                strcat(treeContent,"F ");
+                strncat(treeContent,filename,strlen(filename)-1);
+                strcat(treeContent," ");
+                strcat(treeContent,hash);
+                strcat(treeContent,"\n");
+            }
+            continue;
+        }
+
+        // DIR
+        if ( getFieldsFromIndex(buffer,hash,path) == 1 ){
+            
+            // If dir is in level 0, update tree
+            if (getFileLevel(path) == 0)
+            {
+                getNameFromPath(path,filename);
+
+                // Update entries
+                strcat(treeContent,"D ");
+                strncat(treeContent,filename,strlen(filename)-1);
+                strcat(treeContent," ");
+                strcat(treeContent,hash);
+                strcat(treeContent,"\n");
+            }
+        }
+
+    }
+
+    hashObjectFromString('t',treeContent,commitTreeHash,"-w");
+
+    fclose(index);
+}
+
+void getActiveBranch(char* branch_path){
+    FILE *head;
+
+    // Open HEAD file and get branch path
+    head = fopen(HEAD_PATH,"rb");
+    if (head == NULL) perror("Error opening branch file: "), exit(EXIT_FAILURE);
+
+    fgets(branch_path,PATHS_MAX_SIZE,head);
+    fclose(head);
+
+    // Correct path (crop '\n' at the end)
+    branch_path[strcspn(branch_path, "\n")] = 0;
+}
+
+void setActiveBranch(char* branchName){
+    // TODO
+}
+
+void updateBranch(char* branchPath, char* newCommitHash){
+    
+    int fd;
+
+    fd = open(branchPath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) perror("Error opening './someBranchToUpdate'"),exit(1);
+
+    // Write new commit
+    if (write(fd, newCommitHash, 2*SHA_DIGEST_LENGTH) < 1) perror("Error writing new commit hash into './someBranchToUpdate': "),exit(1);
+    
+    // Close
+    if (close(fd) == -1) perror("Error closing './someBranchToUpdate': "),exit(1);
+}
+
+void getLastCommit(char* commitFatherHash){
+
+    FILE *branch;
+    char branch_path[PATHS_MAX_SIZE]; // It has '\n' at the end --> cropped
+
+    getActiveBranch(branch_path);
+
+    // Open active branch and get commit hash
+    branch = fopen(branch_path,"rb");
+    if (branch == NULL) perror("Error opening branch file: "), exit(EXIT_FAILURE);
+    
+    fgets(commitFatherHash,2*SHA_DIGEST_LENGTH+1,branch);
+    // Correct hash (crop '\n' at the end)
+    commitFatherHash[strcspn(commitFatherHash, "\n")] = 0;
+
+    fclose(branch);
+}
+
+int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut){
+
+    int fd_commit,findStatus=0;
+    char prevCommit[2*SHA_DIGEST_LENGTH];
+    char prevCommit_path[PATHS_MAX_SIZE];
+    char prevCommitTreeHash[2*SHA_DIGEST_LENGTH];
+    char prevCommitTree_path[PATHS_MAX_SIZE];
+
+    // Check if nothing has changed (up to date)
+    getLastCommit(prevCommit);
+    
+    // If not the first commit, search prev tree
+    if (strcmp(prevCommit,"NONE") != 0)
+    {
+        findFile(OBJECTS_PATH, prevCommit,prevCommit_path,&findStatus);
+        getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL);
+        
+        prevCommit_path[strcspn(commitTreeHash, "\n")] = 0;
+        prevCommitTreeHash[strcspn(prevCommitTreeHash, "\n")] = 0;
+
+        // If current CommitTreeHash and prev commitTreeHash are the same, return. Up to date
+        if (strcmp(prevCommitTreeHash,commitTreeHash) == 0)
+            return 0;
+    }
+    
+    // Create temporal file for commit object content
+    fd_commit = open(TEMP_COMMIT_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd_commit < 0) perror("Error opening './tempCommitTree'"),exit(1);
+
+    // Append commit tree
+    if (write(fd_commit, "tree ", strlen("tree ")) < 1) perror("Error writing 'tree ' into './tempCommit': "),exit(1);
+    if (write(fd_commit, commitTreeHash, strlen(commitTreeHash)) < 1) perror("Error writing 'commitTreeHash' into './tempCommit': "),exit(1);
+    if (write(fd_commit, "\n ", 1) < 1) perror("Error writing '\\n' into './tempCommit': "),exit(1);
+
+    // Append previous commit (First commit will have 'NONE')
+    if (write(fd_commit, "commit ", strlen("commit ")) < 1) perror("Error writing 'commit ' into './tempCommit': "),exit(1);
+    if (write(fd_commit, prevCommit, strlen(prevCommit)) < 1) perror("Error writing 'prevCommit' into './tempCommit': "),exit(1);
+    if (write(fd_commit, "\n ", 1) < 1) perror("Error writing '\\n' into './tempCommit': "),exit(1);
+
+    // Append commiter (user)
+    if (write(fd_commit, "user ", strlen("user ")) < 1) perror("Error writing 'user' into './tempCommit': "),exit(1);
+    if (write(fd_commit, user, strlen(user)) < 1) perror("Error writing 'user' into './tempCommit': "),exit(1);
+    if (write(fd_commit, "\n ", 1) < 1) perror("Error writing '\\n' into './tempCommit': "),exit(1);
+
+    // Append message
+    if (write(fd_commit, "\nmessage: ", strlen("\nmessage: ")) < 1) perror("Error writing '\\nmessage: ' into './tempCommit': "),exit(1);
+    if (write(fd_commit, commitMessage, strlen(commitMessage)+1) < 1) perror("Error writing 'user' into './tempCommit': "),exit(1);
+
+    // Close 
+    if (close(fd_commit) == -1) perror("Error closing './tempCommit': "),exit(1);
+
+    // Add header, compute hash and create commit object
+    hashObject('c',TEMP_COMMIT_PATH,"",commitHashOut,"-w");
+
+    // Remove temporal file
+    if (remove(TEMP_COMMIT_PATH) == -1) perror("Error trying to remove './tempCommit': "),exit(1);
+    return 1;
 }
 
 void updateIndex(char* hash, char* path, char type){
@@ -376,8 +737,8 @@ void add(int argc, char *argv[])
 {
 
     // Bad usage
-    if (argc < 2){
-        printf("Error!\nUsage: './minimalAdd [File1]...[FileN]' -- Not folders allowed\n");
+    if ((argc == 2) && (strcmp(argv[1],".")!=0)){
+        printf("Error!\n");
         printf("Usage: './minimalAdd .' -- All files and folders will be add\n");
         exit(1);
     }
@@ -385,22 +746,14 @@ void add(int argc, char *argv[])
     int n_files = argc - 1;
 
     // Bad usage
-    if ((n_files > 1) && (strcmp(argv[1],".")==0)){
-        printf("Error!\nUsage: './minimalAdd [File1]...[FileN]' -- Not folders allowed\n");
+    if (n_files > 1){
+        printf("Error!\n");
         printf("Usage: './minimalAdd .' -- All files and folders will be add\n");
         exit(1);
     }
 
     // Try to delete old index file
-    if (remove("./.miniGit/index") == -1) perror("Error trying to remove old './.miniGIT/index': ");
-
-    // Add for some files
-    if (n_files >= 1 && (strcmp(argv[1],".")!=0)){
-        char hashedFile[2*SHA_DIGEST_LENGTH];
-        for (int i=0;i<n_files;i++){
-            hashObject('b',argv[i+1],argv[i+1],hashedFile,"-w");
-        }
-    }
+    if (remove("./.miniGit/index") == -1) perror("'./.miniGIT/index' not found. Will be overwritten.");
 
     // Add for all files
     if ((n_files == 1) && (strcmp(argv[1],".")==0)){
@@ -410,9 +763,39 @@ void add(int argc, char *argv[])
 
 }
 
+void commit(int argc, char *argv[], char* username){
 
-int main(int argc, char *argv[]){
+    /* 
+    Commit function. 
+    argv[0] --> .c file name
+    argv[1] --> commit message. Use quotes to string-like message "This is a commit message"
+    */
 
-    add(argc,argv);
-    return 0;
-}
+    // Bad usage
+    if (argc != 2){
+        printf("Error!\nUsage: './minimalCommit \"COMMIT MESSAGE\"\n");
+        exit(1);
+    }
+
+    char commitTreeHash[2*SHA_DIGEST_LENGTH], commitHash[2*SHA_DIGEST_LENGTH];
+    char active_branch[PATHS_MAX_SIZE], branch_name[PATHS_MAX_SIZE];
+    int ret;
+    
+    // Create commit tree object
+    buildCommitTree(commitTreeHash);
+
+    // Create commit object
+    ret = buildCommitObject(argv[1],commitTreeHash,username,commitHash);
+    if (ret == 0)
+    {
+        printf("Nothing to commit. Up to date\n");
+        return;
+    }
+
+    // Update active branch
+    getActiveBranch(active_branch);
+    updateBranch(active_branch,commitHash);
+
+    // Print succes messages
+    getNameFromPath(active_branch,branch_name);
+    printf("Active branch '%s' was updated with new commit!\n",branch_name);
