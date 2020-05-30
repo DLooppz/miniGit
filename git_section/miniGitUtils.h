@@ -13,6 +13,7 @@
 #define OBJECTS_PATH "./.miniGit/objects/"
 #define REFS_PATH "./.miniGit/refs"
 #define REFS_HEAD_PATH "./.miniGit/refs/head"
+#define REFS_HEAD_ORIGIN "./.miniGit/refs/origin"
 #define REFS_HEAD_MASTER_PATH "./.miniGit/refs/head/master"
 #define TEMP_COMMIT_TREE_PATH "./.miniGit/tempCommitTree"
 #define TEMP_COMMIT_PATH "./.miniGit/tempCommit"
