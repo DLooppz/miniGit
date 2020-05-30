@@ -9,98 +9,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
-#include <stdbool.h>
 #include "miniGitUtils.h"
 
-void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
-{
-    /* Function that searchs fileToFind and stores "1" in findStatus if found */
-    char path[1000];
-    struct dirent *dirent_pointer;
-    DIR *dir = opendir(basePath);
-    
-    // If current folder is being looked for
-    if (strcmp(fileToFind, ".") == 0)
-    {
-        *findStatus = true;
-        return;
-    }    
 
-    // Unable to open directory stream
-    if (!dir)
-        return;
 
-    while (((dirent_pointer = readdir(dir)) != NULL) && (*findStatus != 1)){
-        // Avoid "." and ".." entries
-        if (strcmp(dirent_pointer->d_name, ".") != 0 && strcmp(dirent_pointer->d_name, "..") != 0){
-            // Check if file was found
-            if (strcmp(dirent_pointer->d_name,fileToFind) == 0){
-                
-                // Notify that file was found and return
-                *findStatus = true;
-                return;
-            }
-
-            // Construct new path from our base path
-            strcpy(path, basePath);
-            strcat(path, "/");
-            strcat(path, dirent_pointer->d_name);
-
-            checkFileExistence(path,fileToFind,findStatus);
-        }
-    }
-    closedir(dir);
-}
-
-void createFolder(char* prevFolderPath, char* folderName){
-
-    /* 
-    Creates folder inside prevFolderPath. If prevFolderPath doesnt exist, it may do unhappy things... (nothing happens)
-    Nothing change if folderName already exist
-    */
-
-    char completePath[PATHS_MAX_SIZE];
-    
-    strcpy(completePath,prevFolderPath);
-    strcat(completePath,"/");
-    strcat(completePath,folderName);
-
-    struct stat st = {0};
-    if (stat(completePath, &st) == -1) {
-        mkdir(completePath, 0700);
-    }
-}
-
-void createFile(char* folderPath, char* fileName, char* content){
-
-    /* 
-    Creates fileName in folderPath and write content in it. 
-    If  file already exist, it is overwritten
-    If folderPath doesn't exist, it is not created and error is set
-    */
-
-    bool folderExist = false;
-    bool fileExist = false;
-    int fd;
-    char completePath[PATHS_MAX_SIZE];
-
-    // Make full path
-    strcpy(completePath,folderPath);
-    strcat(completePath, "/");
-    strcat(completePath,fileName);
-
-    // Create and write
-    fd = open(completePath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) perror("Error creating file. Probably containing folder doesn't exist\n"),exit(1);
-
-    // Write content
-    if (write(fd, content, strlen(content)) < 1) perror("Error writing content into file: "),exit(1);
-    
-    // Close
-    if (close(fd) == -1) perror("Error closing file: "),exit(1);
-}
-
-void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
+void findFile(char *basePath,char* hashToFind, char* pathFound, int* findStatus)
 {
     /* Function that finds path of hashToFind and stores it in pathFound */
     char path[1000];
@@ -142,7 +55,7 @@ void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatu
             strcat(path, "/");
             strcat(path, dirent_pointer->d_name);
 
-            findObject(path,hashToFind,pathFound,findStatus);
+            findFile(path,hashToFind,pathFound,findStatus);
         }
     }
     closedir(dir);
@@ -283,7 +196,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
-        findObject(OBJECTS_PATH,hashName_out,NULL,&findFlag);
+        findFile(OBJECTS_PATH,hashName_out,NULL,&findFlag);
         
         // Create if doesnt exist
         if (findFlag != 1){
@@ -330,7 +243,7 @@ void hashObjectFromString(char type, char* content, char* hashName_out, char* cr
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
-        findObject(OBJECTS_PATH,hashName_out,NULL,&findFlag);
+        findFile(OBJECTS_PATH,hashName_out,NULL,&findFlag);
         
         // Create if doesnt exist
         if (findFlag != 1){
@@ -614,7 +527,7 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
     // If not the first commit, search prev tree
     if (strcmp(prevCommit,"NONE") != 0)
     {
-        findObject(OBJECTS_PATH, prevCommit,prevCommit_path,&findStatus);
+        findFile(OBJECTS_PATH, prevCommit,prevCommit_path,&findStatus);
         getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL);
         
         prevCommit_path[strcspn(commitTreeHash, "\n")] = 0;
@@ -813,36 +726,7 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
     closedir(dir);
 }
 
-// -----------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------
-// User functions
-// -----------------------------------------------------------------------------------------------------------
-// -----------------------------------------------------------------------------------------------------------
 
-void init()
-{
-    // Check if .miniGit folder exist
-    bool repo_exist = false;
-    checkFileExistence(".",".miniGit",&repo_exist);
-    if (repo_exist)
-    {
-        printf("A repository already exist in this folder. No init was made.\n");
-        return;
-    }
-
-    // Create miniGit folders
-    createFolder(".",".miniGit/");
-    createFolder(MINIGIT_PATH,"objects/");
-    createFolder(MINIGIT_PATH,"refs/");
-    createFolder(REFS_PATH,"head/");
-    createFolder(REFS_PATH,"origin/");
-    
-    // Create miniGit files
-    createFile(REFS_HEAD_PATH,"master","NONE");
-    createFile(MINIGIT_PATH,"index"," ");
-    createFile(MINIGIT_PATH,"HEAD",REFS_HEAD_MASTER_PATH);
-
-}
 
 void add(int argc, char *argv[])
 {
@@ -859,7 +743,7 @@ void add(int argc, char *argv[])
     // Bad usage
     if (n_files != 1){
         printf("Error!\n");
-        printf("Usage: './minimalAdd .' to add all files and folders.\n");
+        printf("Usage: './miniGitAdd .' to add all files and folders.\n");
         exit(1);
     }
 
@@ -884,7 +768,7 @@ void commit(int argc, char *argv[], char* username){
 
     // Bad usage
     if (argc != 2){
-        printf("Error!\nUsage: './minimalCommit \"COMMIT MESSAGE\"\n");
+        printf("Error!\nUsage: './miniGitCommit \"COMMIT MESSAGE\"\n");
         exit(1);
     }
 
