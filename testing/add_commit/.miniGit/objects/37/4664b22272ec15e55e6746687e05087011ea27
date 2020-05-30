@@ -1,0 +1,12 @@
+tree 589
+F minimalAdd.c 7f225e8b76f09bc9afdb87e582dc5e5ce3bc3218
+F miniGitUtils.c 0ae21f8368a997158205f17ed8784bee52ab9023
+F miniGitAdd 8d8d11ef5aab17c97e2fa83a00cd08331e196e11
+F code.c 48fb9b872ca1b0dacefd7e7efcbd8277fa48901d
+F file1Copy 04e8a5d07111acdcdc5c2ecb2036fe55f55f4291
+D Dir1 f193c42eae7be58d214e3ab764762dd896cd1b40
+F miniGitCommit 8d8d11ef5aab17c97e2fa83a00cd08331e196e11
+F file1 79961d3e31d3ae371fea8ebcfd35981cb1b28560
+F miniGitUtils.h f498eba9785b0fc3889943b3966aaf5bacd170a8
+F minimalCommit.c 83afc80600db101b2fd0f032f4ab0bd033d30220
+D Dir2 85d3828ad962397380fdbd5ca331596441c04006
