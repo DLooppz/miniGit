@@ -24,7 +24,7 @@ void * clientThread(void *arg){
     clientInfo_t * ptr_clientInfo;
     struct Packet packet;
     bool stopClientThread = false;
-    char rootPath[FILELEN];
+    char rootPath[FILELEN], userName[USERLEN];
 
     // Thread information structure
     ptr_clientInfo = (clientInfo_t *) arg; 
@@ -45,7 +45,7 @@ void * clientThread(void *arg){
                 setClientPass(ptr_clientInfo, packet.payload.signArgs.password);
 
                 // Check if username is registered (did a signup)
-                if(isRegistered(ptr_clientInfo) != 1){
+                if(isRegistered(ptr_clientInfo->username) != 1){
                     setResponsePacket(&packet, ErrorA);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
                     printf("User not registered\n");
@@ -83,7 +83,7 @@ void * clientThread(void *arg){
                 setClientPass(ptr_clientInfo, packet.payload.signArgs.password);
                 
                 // Check if username already exists
-                if(isRegistered(ptr_clientInfo) == 1){
+                if(isRegistered(ptr_clientInfo->username) == 1){
                     setResponsePacket(&packet, ErrorA);
                     sendPacket(ptr_clientInfo->sock_fd, &packet);
                     printf("Username is already registered\n");
@@ -99,10 +99,52 @@ void * clientThread(void *arg){
                 sendPacket(ptr_clientInfo->sock_fd, &packet);
                 break;
 
+            case pull:
+                // Check if username exists
+                if(isRegistered(packet.payload.pullArgs.username) == 0){
+                    setResponsePacket(&packet, ErrorA);
+                    sendPacket(ptr_clientInfo->sock_fd, &packet);
+                    printf("Username doesnt exist\n");
+                    break;
+                }
+
+                // Save username inside the pull packet that server has just received.
+                strcpy(userName, packet.payload.pullArgs.username);
+
+                // Send response
+                setResponsePacket(&packet, OK);
+                sendPacket(ptr_clientInfo->sock_fd, &packet);
+
+                // Set dir used to send data
+                strcpy(rootPath, USERDIR);
+                strcat(rootPath, userName);
+                printf("Root path: %s\n", rootPath);
+
+                // Send dir associated to the username
+                ret = sendDir(ptr_clientInfo->sock_fd, &packet, rootPath, 0, true, false, 0);
+                if(ret == -1){
+                    stopClientThread = true;
+                    break;
+                }
+                break;
+
             case push:
+                // Set dir in which to receive data
                 strcpy(rootPath, USERDIR);
                 strcat(rootPath,ptr_clientInfo->username);
-                recvDir(ptr_clientInfo->sock_fd, &packet, rootPath);
+
+                // Receive data
+                ret = recvDir(ptr_clientInfo->sock_fd, &packet, rootPath);
+                if(ret == -1){
+                    setResponsePacket(&packet, ErrorA);
+                    sendPacket(ptr_clientInfo->sock_fd, &packet);
+                    stopClientThread = true;
+                    break;
+                }
+
+                // ---------- OK zone ----------
+                setResponsePacket(&packet, OK);
+                sendPacket(ptr_clientInfo->sock_fd, &packet);
                 break;
 
             default:

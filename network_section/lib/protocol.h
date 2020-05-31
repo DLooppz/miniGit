@@ -43,6 +43,10 @@ enum Command {      // Attention: if this is modified, function typed2enum shoul
     block,
     push,
     pull,
+    add,
+    commit,
+    init,
+    wrongCommand,
     help,           // no packets with this command, but its useful for using a switch in client.c
     stop,           // no packets with this command, but its useful for using a switch in client.c
     clearScreen,    // no packets with this command, but its useful for using a switch in client.c
@@ -80,6 +84,10 @@ struct __attribute__((packed)) BlockArgs{
     char blockData[BLOCKLEN];
 };
 
+struct __attribute__((packed)) PullArgs{
+    char username[USERLEN];
+};
+
 struct __attribute__((packed)) Packet{
     struct Header header;
     union Payload {
@@ -87,6 +95,7 @@ struct __attribute__((packed)) Packet{
         struct ResponseArgs responseArgs;
         struct FileArgs fileArgs;
         struct BlockArgs blockArgs;
+        struct PullArgs pullArgs;
     } payload;
 };
 
@@ -100,6 +109,7 @@ void setSignInPacket(struct Packet *packet, const char *user, const char *pass);
 void setResponsePacket(struct Packet *packet, enum ResponseValues responseValue);
 void setSignOutPacket(struct Packet *packet);
 void setPushPacket(struct Packet *packet);
+void setPullPacket(struct Packet *packet, const char *user);
 void setFilePacket(struct Packet *packet, const char *fileName, uint32_t fileSize, bool lastFile);
 void setBlockPacket(struct Packet *packet, uint32_t blockLength, const char *blockData);
 enum Command getPacketCommand(struct Packet *packet);
@@ -109,19 +119,21 @@ void setClientUser(clientInfo_t *clientInfo, char *username);
 void setClientPass(clientInfo_t *clientInfo, char *password);
 void setClientSignedIn(clientInfo_t *clientInfo, bool signedIn);
 bool isSignedIn(clientInfo_t *clientInfo);
-int isRegistered(clientInfo_t *clientInfo);
+int isRegistered(char *username);
 int isPassCorrect(clientInfo_t *clientInfo);
 
 int readNthLineFromFile(const char *srcPath, char *dest, int nthLine);
 void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg);
 int createUser(clientInfo_t *clientInfo);
 int createDir(const char *dirName);
-enum Command typed2enum(char *typedInCommand);
+enum Command typed2enum(const char *typedInCommand);
 void printFile(const char *filePath);
-void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude);
-void sendFile(int socket, struct Packet *packet, const char *filename, int exclude);
-void recvDir(int socket, struct Packet *packet, const char *rootDir);
-void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath);
+int sendDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude);
+int sendFile(int socket, struct Packet *packet, const char *filename, int exclude);
+int recvDir(int socket, struct Packet *packet, const char *rootDir);
+int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath);
 int countOccurrences(char c, const char *string);
 int remove_directory(const char *path, const char *exclude);
+void getNthArg(const char * typedInCommand, int n, char * nthArg);
+void printHelp(void);
 #endif

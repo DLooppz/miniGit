@@ -98,6 +98,13 @@ void setPushPacket(struct Packet *packet){
     packet->header.length = sizeof(struct Header);
 }
 
+void setPullPacket(struct Packet *packet, const char *user){
+    bzero(packet,sizeof(packet));
+    packet->header.command = pull;
+    packet->header.length = sizeof(struct Header) + sizeof(struct PullArgs);
+    strcpy(packet->payload.pullArgs.username, user);
+}
+
 void setFilePacket(struct Packet *packet, const char *fileName, uint32_t fileSize, bool lastFile){
     bzero(packet,sizeof(packet));
     packet->header.command = file;
@@ -127,11 +134,11 @@ bool isSignedIn(clientInfo_t *clientInfo){
     return clientInfo->signedIn;
 }
 
-int isRegistered(clientInfo_t *clientInfo){
-    char username[USERLEN + 6];
-    strcpy(username,USERDIR);
-    strcat(username, clientInfo->username);
-    DIR* dir = opendir(username);
+int isRegistered(char *username){
+    char userpath[USERLEN + 6];
+    strcpy(userpath,USERDIR);
+    strcat(userpath, username);
+    DIR* dir = opendir(userpath);
     if (dir){
         closedir(dir);
         return 1;
@@ -196,6 +203,7 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
 }
 
 void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
+    bzero(dest,sizeof(dest));
     if(isSignedIn(clientInfo))
         printf("%s@miniGit: ",clientInfo->username);
     else
@@ -207,15 +215,13 @@ void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const cha
         dest[strlen (dest) - 1] = '\0';
 }
 
-enum Command typed2enum(char *typedInCommand){ // Attention: if this is modified, enum Command should also be modified
+enum Command typed2enum(const char *typedInCommand){ // Attention: if this is modified, enum Command should also be modified
     if(strcmp(typedInCommand,"signin")==0 || strcmp(typedInCommand,"login")==0)
         return signin;
     else if(strcmp(typedInCommand,"signout")==0 || strcmp(typedInCommand,"logout")==0)
         return signout;
     else if(strcmp(typedInCommand,"signup")==0 || strcmp(typedInCommand,"register")==0)
         return signup;
-    else if(strcmp(typedInCommand,"pull")==0)
-        return pull;
     else if(strcmp(typedInCommand,"push")==0)
         return push;
     else if(strcmp(typedInCommand,"help")==0)
@@ -226,6 +232,22 @@ enum Command typed2enum(char *typedInCommand){ // Attention: if this is modified
         return clearScreen;
     else if(strcmp(typedInCommand,"ls")==0)
         return ls;
+    else if(strcmp(typedInCommand,"init")==0)
+        return init;
+    else if(strcmp(typedInCommand,"commit")==0)
+        return commit;
+    
+    // If its none of the previous commands:
+    char *token, *rest, aux[COMMANDLEN];
+    strcpy(aux, typedInCommand);
+    rest = aux;
+    token = strtok_r(rest, " ", &rest);
+    
+    if(strcmp(token,"pull")==0 || strcmp(token,"clone")==0)
+        return pull;
+    else if(strcmp(token,"add")==0)
+        return add;
+    return wrongCommand;
 }
 
 int createUser(clientInfo_t *clientInfo){
@@ -272,20 +294,20 @@ void printFile(const char *filePath){
     fclose(fp);
 }
 
-void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude){
+// The next functions tries to send a directory. If success, returns 1. If error in opening a folder, returns -1. If error in sending a file returns -2
+int sendDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude){
     DIR *dir;
     struct dirent *entry;
+    int ret;
 
-    // When client pushes, the client may have deleted by accident the folder, so create it, just in case
     if(level == 0){
-        mkdir(dirName, 0777);
+        mkdir(dirName, 0777); // when client pushes, the client may have deleted by accident the folder, so create it, just in case
         exclude = strlen(dirName) + 1; // plus 1 because of '/'
     }
 
     // Check if dir can be opened
     if (!(dir = opendir(dirName)))
-        return;
-        
+        return -1;
 
     // Loop over all files and subdirs of current dir
     while ((entry = readdir(dir)) != NULL) {
@@ -296,7 +318,9 @@ void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int le
                 continue;
             snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
             if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
-            sendPrintDir(socket, packet, path, level + 1, send, print, exclude); // recursion
+            ret = sendDir(socket, packet, path, level + 1, send, print, exclude); // recursion
+            if(ret != 1)    
+                return ret;
         } 
         // Else if entry is a file
         else {
@@ -305,7 +329,9 @@ void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int le
                 char fileName[PATHLEN];
                 snprintf(fileName, sizeof(fileName), "%s/%s", dirName, entry->d_name);
                 //Send file
-                sendFile(socket, packet, fileName, exclude);
+                ret = sendFile(socket, packet, fileName, exclude);
+                if(ret == -1)
+                    return -2;
             }
         }
     }
@@ -317,33 +343,37 @@ void sendPrintDir(int socket, struct Packet *packet, const char *dirName, int le
         setFilePacket(packet, "", 0, true);
         sendPacket(socket, packet);
     }
+    return 1;
 }
 
-void sendFile(int socket, struct Packet *packet, const char *fileName, int exclude){
-    printf("File to send: %s\n",fileName);
+int sendFile(int socket, struct Packet *packet, const char *fileName, int exclude){
     uint32_t fileSize;
     FILE *fp;
     char buffer[BLOCKLEN + 1];
+    int ret;
     
     // Open file and get file size
     fp = fopen(fileName, "r");
     fseek(fp, 0L, SEEK_END);
     fileSize = ftell(fp);
     rewind(fp);
-    printf("File size [bytes]: %d\n",fileSize);
 
     // Send file packet
     setFilePacket(packet, fileName + exclude, fileSize, false);
-    sendPacket(socket, packet);
+    if(sendPacket(socket, packet) == -1)
+        return -1;
 
     // Send block packets
     while(fgets(buffer, BLOCKLEN, fp) != NULL){
         setBlockPacket(packet, strlen(buffer), buffer);
-        sendPacket(socket, packet);
+        if(sendPacket(socket, packet) == -1)
+            return -1;
     }
+
+    return 1;
 }
 
-void recvDir(int socket, struct Packet *packet, const char *rootDir){
+int recvDir(int socket, struct Packet *packet, const char *rootDir){
     bool lastFile;
     char fileName[FILELEN], filePath[FILELEN];
     uint32_t fileSize;
@@ -355,7 +385,7 @@ void recvDir(int socket, struct Packet *packet, const char *rootDir){
 
         if(packet->header.command != file){
             printf("Error: A file type packet was expected\n");
-            return;
+            return -1;
         }
 
         lastFile = packet->payload.fileArgs.lastFile;
@@ -370,9 +400,10 @@ void recvDir(int socket, struct Packet *packet, const char *rootDir){
         }
 
     } while (!lastFile);
+    return 1;
 }
 
-void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath){
+int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath){
     uint32_t toReceive = fileSize;
     FILE *fp;
 
@@ -395,7 +426,7 @@ void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePa
     fp = fopen(filePath,"w+");
     if(fp == NULL){
         printf("Error in opening file\n");
-        return;
+        return -1;
     }
     
 
@@ -405,7 +436,7 @@ void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePa
         // Check packet type
         if(packet->header.command != block){
             printf("Error: A block type packet was expected\n");
-            return;
+            return -1;
         }
 
         fprintf(fp, "%s", packet->payload.blockArgs.blockData);
@@ -413,6 +444,7 @@ void recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePa
         toReceive -= packet->payload.blockArgs.blockLength;
     }
     fclose(fp);
+    return 1;
 }
 
 int countOccurrences(char c, const char *string){
@@ -465,4 +497,50 @@ int remove_directory(const char *path, const char *exclude) {
         r = rmdir(path);
 
     return r;
+}
+
+void getNthArg(const char * typedInCommand, int n, char * nthArg){
+    char *token, *rest, aux[COMMANDLEN];
+    strcpy(aux, typedInCommand);
+    rest = aux;
+
+    int i = 0;
+    while((token = strtok_r(rest, " ", &rest))){
+        if(i==n){
+            strcpy(nthArg, token);
+            return;
+        }
+        i++;
+    }
+    bzero(nthArg,sizeof(nthArg));
+    
+}
+
+void printHelp(void){
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
+printf("                         Use of miniGit\n");
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
+printf("Accepted commands:\n");
+printf("username@miniGit: Enter command> help\n");
+printf("username@miniGit: Enter command> init\n");
+printf("username@miniGit: Enter command> add\n");
+printf("username@miniGit: Enter command> commit\n");
+printf("username@miniGit: Enter command> checkout HASH\n");
+printf("username@miniGit: Enter command> pull USERNAME 'or' clone USERNAME\n");
+printf("username@miniGit: Enter command> clear\n");
+printf("username@miniGit: Enter command> exit 'OR' stop\n");
+printf("\n");
+printf("Accepted commands when not signed in (ONLY):\n");
+printf("@miniGit: Enter command> login 'or' signin\n");
+printf("@miniGit: Enter command> signup 'or' register\n");
+printf("\n");
+printf("Accepted commands when signed in (ONLY):\n");
+printf("username@miniGit: Enter command> pull\n");
+printf("username@miniGit: Enter command> push\n");
+printf("username@miniGit: Enter command> ls\n");
+printf("username@miniGit: Enter command> logout 'or' signout\n");
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
 }
