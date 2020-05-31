@@ -1,16 +1,551 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dirent.h>
-#include <sys/types.h>
-#include <openssl/sha.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <assert.h>
-#include <stdbool.h>
 #include "miniGitUtils.h"
+
+void error(const char *msg) {
+    perror(msg);
+    exit(0);
+}
+
+int sendPacket(int socket, const struct Packet *packet){
+    int sent;
+    int toSend = packet->header.length;
+
+    const uint8_t *ptr = (const uint8_t *) packet;
+
+    while( toSend ) {
+        sent = send(socket, ptr, toSend, 0);
+        if( sent == 0 )
+            return 0;
+        if( sent == -1 ) {
+            if( errno == EINTR )
+                continue;
+            return -1;
+        }
+        toSend -= sent;
+        ptr += sent;
+    }
+    return 1;
+}
+
+int recvPacket(int socket, struct Packet *packet){
+    bzero(packet, sizeof(packet));
+    int received;
+    int toReceive = sizeof(struct Header);
+    uint8_t *ptr = (uint8_t *) packet;
+    
+    while(toReceive){
+        received = recv(socket, ptr, toReceive, 0);
+        if( received == 0 )
+            return 0;
+        if( received == -1 ) {
+            if( errno == EINTR )
+                continue;
+            return -1;
+        }
+        toReceive -= received;
+        ptr += received;
+    }
+
+    toReceive = packet->header.length  - sizeof(struct Header);
+
+    while(toReceive){
+        received = recv(socket, ptr, toReceive, 0);
+        if( received == 0 )
+            return 0;
+        if( received == -1 ) {
+            if( errno == EINTR )
+                continue;
+            return -1;
+        }
+        toReceive -= received;
+        ptr += received;
+    }
+
+    return 1;
+}
+
+void setSignUpPacket(struct Packet *packet, const char *user, const char *pass){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_signup;
+    packet->header.length = sizeof(struct Header) + sizeof(struct SignArgs);
+    strcpy(packet->payload.signArgs.username, user);
+    strcpy(packet->payload.signArgs.password, pass);
+}
+
+void setSignInPacket(struct Packet *packet, const char *user, const char *pass){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_signin;
+    packet->header.length = sizeof(struct Header) + sizeof(struct SignArgs);
+    strcpy(packet->payload.signArgs.username, user);
+    strcpy(packet->payload.signArgs.password, pass);
+}
+
+void setResponsePacket(struct Packet *packet, enum ResponseValues responseValue){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_response;
+    packet->header.length = sizeof(struct Header) + sizeof(struct ResponseArgs);
+    packet->payload.responseArgs.value = responseValue;
+}
+
+void setSignOutPacket(struct Packet *packet){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_signout;
+    packet->header.length = sizeof(struct Header);
+}
+
+void setPushPacket(struct Packet *packet){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_push;
+    packet->header.length = sizeof(struct Header);
+}
+
+void setPullPacket(struct Packet *packet, const char *user){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_pull;
+    packet->header.length = sizeof(struct Header) + sizeof(struct PullArgs);
+    strcpy(packet->payload.pullArgs.username, user);
+}
+
+void setFilePacket(struct Packet *packet, const char *fileName, uint32_t fileSize, bool lastFile){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_file;
+    packet->header.length = sizeof(struct Header) + sizeof(struct FileArgs);
+    strcpy(packet->payload.fileArgs.name, fileName);
+    packet->payload.fileArgs.fileSize = fileSize ;
+    packet->payload.fileArgs.lastFile = lastFile ;
+}
+
+void setBlockPacket(struct Packet *packet, uint32_t blockLength, const char *blockData){
+    bzero(packet,sizeof(packet));
+    packet->header.command = c_block;
+    packet->header.length = sizeof(struct Header) + sizeof(struct BlockArgs);
+    packet->payload.blockArgs.blockLength = blockLength;
+    strcpy(packet->payload.blockArgs.blockData, blockData);
+}
+
+enum Command getPacketCommand(struct Packet *packet){
+    return packet->header.command;
+}
+
+enum ResponseValues getPacketResponseVal(struct Packet *packet){
+    return packet->payload.responseArgs.value;
+}
+
+bool isSignedIn(clientInfo_t *clientInfo){
+    return clientInfo->signedIn;
+}
+
+int isRegistered(char *username){
+    char userpath[USERLEN + 6];
+    strcpy(userpath,USERDIR);
+    strcat(userpath, username);
+    DIR* dir = opendir(userpath);
+    if (dir){
+        closedir(dir);
+        return 1;
+    } else if (ENOENT == errno) {
+        return 0;
+    }
+    return -1;
+}
+
+void setClientUser(clientInfo_t *clientInfo, char *username){
+    strcpy(clientInfo->username, username);
+}
+
+void setClientPass(clientInfo_t *clientInfo, char *password){
+    strcpy(clientInfo->password, password);
+}
+
+void setClientSignedIn(clientInfo_t *clientInfo, bool signedIn){
+    clientInfo->signedIn = signedIn;
+}
+
+int isPassCorrect(clientInfo_t *clientInfo){
+    int ret;
+    char pass[PASSLEN], realPass[PASSLEN], path[PASSLEN + strlen(USERDIR) + strlen(USERFMT)];
+    strcpy(pass,clientInfo->password);
+    strcpy(path,USERDIR);
+    strcat(path, clientInfo->username);
+    strcat(path, USERFMT);
+    readNthLineFromFile(path, realPass, 0);
+    ret = strcmp(pass,realPass);
+    if(ret == 0)
+        return 1;
+    return 0;
+}
+
+int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
+    int line = 0;
+    FILE * fp;
+    char c;
+    bzero(dest,sizeof(dest));
+    fp = fopen(srcPath, "r");
+    while(1) {
+        c = fgetc(fp);
+        if(line == nthLine){
+            if(c == '\n' || feof(fp)){
+                fclose(fp);
+                return 1;
+            } else
+                strncat(dest, &c, 1); 
+        }
+        if(c == '\n'){
+            line++;
+            continue;
+        }
+
+        if (feof(fp)) 
+            break; 
+    }
+    printf("File doesnt have (n+1) lines\n");
+    fclose(fp);
+    return -1;
+}
+
+void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
+    bzero(dest,sizeof(dest));
+    if(isSignedIn(clientInfo))
+        printf("%s@miniGit: ",clientInfo->username);
+    else
+        printf("@miniGit: ");
+    if(msg!=NULL && strcmp(msg,"")!=0)
+        printf("%s> ",msg);
+    fgets(dest, maxLength, stdin);
+    if ((strlen(dest) > 0) && (dest[strlen (dest) - 1] == '\n'))
+        dest[strlen (dest) - 1] = '\0';
+}
+
+enum Command typed2enum(const char *typedInCommand){ // Attention: if this is modified, enum Command should also be modified
+    if(strcmp(typedInCommand,"signin")==0 || strcmp(typedInCommand,"login")==0)
+        return c_signin;
+    else if(strcmp(typedInCommand,"signout")==0 || strcmp(typedInCommand,"logout")==0)
+        return c_signout;
+    else if(strcmp(typedInCommand,"signup")==0 || strcmp(typedInCommand,"register")==0)
+        return c_signup;
+    else if(strcmp(typedInCommand,"push")==0)
+        return c_push;
+    else if(strcmp(typedInCommand,"help")==0)
+        return c_help;
+    else if(strcmp(typedInCommand,"exit")==0 || strcmp(typedInCommand,"stop")==0)
+        return c_stop;
+    else if(strcmp(typedInCommand,"clear")==0)
+        return c_clearScreen;
+    else if(strcmp(typedInCommand,"ls")==0)
+        return c_ls;
+    else if(strcmp(typedInCommand,"init")==0)
+        return c_init;
+    else if(strcmp(typedInCommand,"commit")==0)
+        return c_commit;
+    
+    // If its none of the previous commands:
+    char *token, *rest, aux[COMMANDLEN];
+    strcpy(aux, typedInCommand);
+    rest = aux;
+    token = strtok_r(rest, " ", &rest);
+    
+    if(strcmp(token,"pull")==0 || strcmp(token,"clone")==0)
+        return c_pull;
+    else if(strcmp(token,"add")==0)
+        return c_add;
+    else if(strcmp(token,"checkout")==0)
+        return c_checkout;
+    return c_wrongCommand;
+}
+
+int createUser(clientInfo_t *clientInfo){
+    char dirPath[USERLEN + strlen(USERDIR)], filePath[USERLEN + strlen(USERDIR) + strlen(USERFMT)];
+    FILE *fp;
+
+    strcpy(dirPath, USERDIR);
+    strcat(dirPath, clientInfo->username);
+
+    strcpy(filePath, USERDIR);
+    strcat(filePath, clientInfo->username);
+    strcat(filePath, USERFMT);
+
+    // Create folder
+    if(createDir(dirPath) == -1)
+        return -1;
+
+    // Create file and insert the password
+    fp = fopen(filePath, "w+");
+    if (fp != NULL){
+        fputs(clientInfo->password, fp);
+        fclose(fp);
+    }
+
+    return 1;
+}
+
+int createDir(const char *dirName){
+    struct stat st = {0};
+    if (stat(dirName, &st) == -1) {
+        mkdir(dirName, 0777);
+        return 1;
+    }
+    return -1;
+}
+
+void printFile(const char *filePath){
+    FILE *fp;
+    char c;
+    fp=fopen(filePath,"r");
+    while((c=fgetc(fp))!=EOF) {
+        printf("%c",c);
+    }
+    fclose(fp);
+}
+
+// The next functions tries to send a directory. If success, returns 1. If error in opening a folder, returns -1. If error in sending a file returns -2
+int sendDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude){
+    DIR *dir;
+    struct dirent *entry;
+    int ret;
+
+    if(level == 0){
+        mkdir(dirName, 0777); // when client pushes, the client may have deleted by accident the folder, so create it, just in case
+        exclude = strlen(dirName) + 1; // plus 1 because of '/'
+    }
+
+    // Check if dir can be opened
+    if (!(dir = opendir(dirName)))
+        return -1;
+
+    // Loop over all files and subdirs of current dir
+    while ((entry = readdir(dir)) != NULL) {
+        // If entry is a dir
+        if (entry->d_type == DT_DIR) {
+            char path[PATHLEN];
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+            snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
+            if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
+            ret = sendDir(socket, packet, path, level + 1, send, print, exclude); // recursion
+            if(ret != 1)    
+                return ret;
+        } 
+        // Else if entry is a file
+        else {
+            if(print) printf("%*s- %s\n", (level * 2), "", entry->d_name);
+            if(send){
+                char fileName[PATHLEN];
+                snprintf(fileName, sizeof(fileName), "%s/%s", dirName, entry->d_name);
+                //Send file
+                ret = sendFile(socket, packet, fileName, exclude);
+                if(ret == -1)
+                    return -2;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    if(level == 0 && send){
+        // Send file packet telling that theres no more files to send
+        setFilePacket(packet, "", 0, true);
+        sendPacket(socket, packet);
+    }
+    return 1;
+}
+
+int sendFile(int socket, struct Packet *packet, const char *fileName, int exclude){
+    uint32_t fileSize;
+    FILE *fp;
+    char buffer[BLOCKLEN + 1];
+    int ret;
+    
+    // Open file and get file size
+    fp = fopen(fileName, "r");
+    fseek(fp, 0L, SEEK_END);
+    fileSize = ftell(fp);
+    rewind(fp);
+
+    // Send file packet
+    setFilePacket(packet, fileName + exclude, fileSize, false);
+    if(sendPacket(socket, packet) == -1)
+        return -1;
+
+    // Send block packets
+    while(fgets(buffer, BLOCKLEN, fp) != NULL){
+        setBlockPacket(packet, strlen(buffer), buffer);
+        if(sendPacket(socket, packet) == -1)
+            return -1;
+    }
+
+    return 1;
+}
+
+int recvDir(int socket, struct Packet *packet, const char *rootDir){
+    bool lastFile;
+    char fileName[FILELEN], filePath[FILELEN];
+    uint32_t fileSize;
+
+    remove_directory(rootDir, rootDir);
+
+    do{
+        recvPacket(socket, packet);
+
+        if(packet->header.command != c_file){
+            printf("Error: A file type packet was expected\n");
+            return -1;
+        }
+
+        lastFile = packet->payload.fileArgs.lastFile;
+        strcpy(fileName, packet->payload.fileArgs.name);
+        fileSize = packet->payload.fileArgs.fileSize;
+
+        if(!lastFile){
+            strcpy(filePath, rootDir);
+            strcat(filePath, "/");
+            strcat(filePath, fileName);
+            recvFile(socket, packet, fileSize, filePath);
+        }
+
+    } while (!lastFile);
+    return 1;
+}
+
+int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath){
+    uint32_t toReceive = fileSize;
+    FILE *fp;
+
+    // Create folders if needed
+    char aux[FILELEN];
+    strcpy(aux,filePath);
+    char *token, *rest = aux, createDir[FILELEN];
+    int i = 0,  nFolders = countOccurrences('/', filePath), ret;
+    strcpy(createDir,"");
+    while((token = strtok_r(rest, "/", &rest))){
+        i++;
+        strcat(createDir,token);
+        // Create folder if doesnt exists
+        ret = mkdir(createDir, 0777);
+        if(i==nFolders) break;
+        strcat(createDir,"/");
+    }
+
+    // Open file
+    fp = fopen(filePath,"w+");
+    if(fp == NULL){
+        printf("Error in opening file\n");
+        return -1;
+    }
+    
+
+    while(toReceive){
+        recvPacket(socket, packet);
+        
+        // Check packet type
+        if(packet->header.command != c_block){
+            printf("Error: A block type packet was expected\n");
+            return -1;
+        }
+
+        fprintf(fp, "%s", packet->payload.blockArgs.blockData);
+
+        toReceive -= packet->payload.blockArgs.blockLength;
+    }
+    fclose(fp);
+    return 1;
+}
+
+int countOccurrences(char c, const char *string){
+    int i, ret = 0, n = strlen(string);
+    for(i = 0; i < n ; i++){
+        if(string[i]==c)
+            ret++;
+    }
+    return ret;
+}
+
+int remove_directory(const char *path, const char *exclude) {
+    DIR *d = opendir(path);
+    size_t path_len = strlen(path);
+    int r = -1;
+    if (d) {
+        struct dirent *p;
+
+        r = 0;
+        while (!r && (p=readdir(d))) {
+            int r2 = -1;
+            char *buf;
+            size_t len;
+
+            /* Skip the names "." and ".." as we don't want to recurse on them. */
+            if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, ".."))
+                continue;
+
+            len = path_len + strlen(p->d_name) + 2; 
+            buf = malloc(len);
+
+            if (buf) {
+                struct stat statbuf;
+
+                snprintf(buf, len, "%s/%s", path, p->d_name);
+                if (!stat(buf, &statbuf)) {
+                    if (S_ISDIR(statbuf.st_mode))
+                        r2 = remove_directory(buf, exclude);
+                    else
+                        r2 = unlink(buf);
+                }
+                free(buf);
+            }
+            r = r2;
+        }
+        closedir(d);
+    }
+
+    if (!r && strcmp(path,exclude)!=0)
+        r = rmdir(path);
+
+    return r;
+}
+
+void getNthArg(const char * typedInCommand, int n, char * nthArg){
+    char *token, *rest, aux[COMMANDLEN];
+    strcpy(aux, typedInCommand);
+    rest = aux;
+
+    int i = 0;
+    while((token = strtok_r(rest, " ", &rest))){
+        if(i==n){
+            strcpy(nthArg, token);
+            return;
+        }
+        i++;
+    }
+    bzero(nthArg,sizeof(nthArg));
+    
+}
+
+void printHelp(void){
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
+printf("                         Use of miniGit\n");
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
+printf("Accepted commands:\n");
+printf("username@miniGit: Enter command> help\n");
+printf("username@miniGit: Enter command> init\n");
+printf("username@miniGit: Enter command> add or add .\n");
+printf("username@miniGit: Enter command> commit\n");
+printf("username@miniGit: Enter command> checkout HASH\n");
+printf("username@miniGit: Enter command> clone USERNAME\n");
+printf("username@miniGit: Enter command> clear\n");
+printf("username@miniGit: Enter command> exit 'OR' stop\n");
+printf("\n");
+printf("Accepted commands when not signed in (ONLY):\n");
+printf("@miniGit: Enter command> login 'or' signin\n");
+printf("@miniGit: Enter command> signup 'or' register\n");
+printf("\n");
+printf("Accepted commands when signed in (ONLY):\n");
+printf("username@miniGit: Enter command> pull\n");
+printf("username@miniGit: Enter command> push\n");
+printf("username@miniGit: Enter command> ls\n");
+printf("username@miniGit: Enter command> logout 'or' signout\n");
+printf("------------------------------------------------------------------\n");
+printf("------------------------------------------------------------------\n");
+}
 
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
 {
@@ -166,7 +701,7 @@ void computeSHA1(char* text, char* hash_output){
     strcpy(hash_output,hex_hashed_text);
 }
 
-void addObjectFile(char* hashName, char* contentPlusHeader){
+void addObjectFile(char* hashName, char* contentPlusHeader, clientInfo_t *clientInfo){
     /* Create fileObject in .miniGit/objects/ given its hash previously calculated and full content (header+content) */
 
     // Be sure of hashName lenght (sometimes hashName comes with trash at the end)
@@ -174,7 +709,10 @@ void addObjectFile(char* hashName, char* contentPlusHeader){
     strncpy(hashToAdd,hashName,2*SHA_DIGEST_LENGTH);
     
     // Dir name
-    char dirName[25] = OBJECTS_PATH;
+    char objects_path[SMALLPATHLEN], dirName[SMALLPATHLEN];
+    strcpy(objects_path, clientInfo->username);
+    strcat(objects_path, OBJECTS_PATH);
+    strcpy(dirName, objects_path);
     char aux[3];
     for (int i=0;i<2;i++){
         aux[i] = hashToAdd[i];
@@ -231,7 +769,7 @@ void buildHeader(char type, long contentSize, char* header_out){
     strcat(header_out,"\n");
 }
 
-void hashObject(char type, char* path, char* fileName, char* hashName_out, char* creationFlag){
+void hashObject(char type, char* path, char* fileName, char* hashName_out, char* creationFlag, clientInfo_t *clientInfo){
     /* 
     char type: 'b':blob ; 't': tree ; 'c': commit
     char* path: path to file
@@ -283,11 +821,14 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
-        findObject(OBJECTS_PATH,hashName_out,NULL,&findFlag);
+        char objects_path[SMALLPATHLEN];
+        strcpy(objects_path, clientInfo->username);
+        strcat(objects_path, OBJECTS_PATH);
+        findObject(objects_path,hashName_out,NULL,&findFlag);
         
         // Create if doesnt exist
         if (findFlag != 1){
-            addObjectFile(hashName_out, contentPlusHeader);
+            addObjectFile(hashName_out, contentPlusHeader, clientInfo);
             switch (type){
             case 'b':
                 printf("Blob object of '%s' added. (Hash: %s)\n",fileName,hashName_out);
@@ -310,7 +851,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
     free(contentPlusHeader);
 }
 
-void hashObjectFromString(char type, char* content, char* hashName_out, char* creationFlag){
+void hashObjectFromString(char type, char* content, char* hashName_out, char* creationFlag, clientInfo_t * clientInfo){
 
     char header[75];
     char contentPlusHeader[strlen(content)+75];
@@ -330,11 +871,14 @@ void hashObjectFromString(char type, char* content, char* hashName_out, char* cr
         
         // Check if object already exist (findFlag will be 1)
         int findFlag = 0;
-        findObject(OBJECTS_PATH,hashName_out,NULL,&findFlag);
+        char objects_path[SMALLPATHLEN];
+        strcpy(objects_path, clientInfo->username);
+        strcat(objects_path, OBJECTS_PATH);
+        findObject(objects_path,hashName_out,NULL,&findFlag);
         
         // Create if doesnt exist
         if (findFlag != 1){
-            addObjectFile(hashName_out, contentPlusHeader);
+            addObjectFile(hashName_out, contentPlusHeader, clientInfo);
             switch (type){
             case 'b':
                 printf("Blob object added. (Hash: %s)\n",hashName_out);
@@ -495,7 +1039,7 @@ void getNameFromPath(char* path, char* name){
     free(tofree);
 }
 
-void buildCommitTree(char* commitTreeHash)
+void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
 {
     /* The commit Tree is complete with the level zero files and dirs in index */
 
@@ -504,7 +1048,10 @@ void buildCommitTree(char* commitTreeHash)
     char buffer[PATHS_MAX_SIZE],type;
     char hash[2*SHA_DIGEST_LENGTH], path[PATHS_MAX_SIZE], filename[PATHS_MAX_SIZE]; /* filename has a '\n' at the end. It is cropped above */
     
-    index = fopen(INDEX_PATH,"rb");
+    char index_path[SMALLPATHLEN];
+    strcpy(index_path, clientInfo->username);
+    strcat(index_path, INDEX_PATH);
+    index = fopen(index_path,"rb");
 
     while(fgets(buffer, PATHS_MAX_SIZE, index))
     {
@@ -545,16 +1092,19 @@ void buildCommitTree(char* commitTreeHash)
 
     }
 
-    hashObjectFromString('t',treeContent,commitTreeHash,"-w");
+    hashObjectFromString('t',treeContent,commitTreeHash,"-w", clientInfo);
 
     fclose(index);
 }
 
-void getActiveBranch(char* branch_path){
+void getActiveBranch(char* branch_path, clientInfo_t *clientInfo){
     FILE *head;
 
     // Open HEAD file and get branch path
-    head = fopen(HEAD_PATH,"rb");
+    char head_path[SMALLPATHLEN];
+    strcpy(head_path, clientInfo->username);
+    strcat(head_path, HEAD_PATH);
+    head = fopen(head_path,"rb");
     if (head == NULL) perror("Error opening branch file: "), exit(EXIT_FAILURE);
 
     fgets(branch_path,PATHS_MAX_SIZE,head);
@@ -582,12 +1132,12 @@ void updateBranch(char* branchPath, char* newCommitHash){
     if (close(fd) == -1) perror("Error closing './someBranchToUpdate': "),exit(1);
 }
 
-void getLastCommit(char* commitFatherHash){
+void getLastCommit(char* commitFatherHash, clientInfo_t *clientInfo){
 
     FILE *branch;
     char branch_path[PATHS_MAX_SIZE]; // It has '\n' at the end --> cropped
 
-    getActiveBranch(branch_path);
+    getActiveBranch(branch_path, clientInfo);
 
     // Open active branch and get commit hash
     branch = fopen(branch_path,"rb");
@@ -600,7 +1150,7 @@ void getLastCommit(char* commitFatherHash){
     fclose(branch);
 }
 
-int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut){
+int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut, clientInfo_t * clientInfo){
 
     int fd_commit,findStatus=0;
     char prevCommit[2*SHA_DIGEST_LENGTH];
@@ -609,12 +1159,15 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
     char prevCommitTree_path[PATHS_MAX_SIZE];
 
     // Check if nothing has changed (up to date)
-    getLastCommit(prevCommit);
+    getLastCommit(prevCommit, clientInfo);
     
     // If not the first commit, search prev tree
     if (strcmp(prevCommit,"NONE") != 0)
     {
-        findObject(OBJECTS_PATH, prevCommit,prevCommit_path,&findStatus);
+        char objects_path[SMALLPATHLEN];
+        strcpy(objects_path, clientInfo->username);
+        strcat(objects_path, OBJECTS_PATH);
+        findObject(objects_path, prevCommit,prevCommit_path,&findStatus);
         getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL);
         
         prevCommit_path[strcspn(commitTreeHash, "\n")] = 0;
@@ -625,8 +1178,12 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
             return 0;
     }
     
+    char temp_commit_path[SMALLPATHLEN];
+    strcpy(temp_commit_path,clientInfo->username);
+    strcpy(temp_commit_path,TEMP_COMMIT_PATH);
+
     // Create temporal file for commit object content
-    fd_commit = open(TEMP_COMMIT_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    fd_commit = open(temp_commit_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (fd_commit < 0) perror("Error opening './tempCommitTree'"),exit(1);
 
     // Append commit tree
@@ -652,19 +1209,22 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
     if (close(fd_commit) == -1) perror("Error closing './tempCommit': "),exit(1);
 
     // Add header, compute hash and create commit object
-    hashObject('c',TEMP_COMMIT_PATH,"",commitHashOut,"-w");
+    hashObject('c',temp_commit_path,"",commitHashOut,"-w", clientInfo);
 
     // Remove temporal file
-    if (remove(TEMP_COMMIT_PATH) == -1) perror("Error trying to remove './tempCommit': "),exit(1);
+    if (remove(temp_commit_path) == -1) perror("Error trying to remove './tempCommit': "),exit(1);
     return 1;
 }
 
-void updateIndex(char* hash, char* path, char type){
+void updateIndex(char* hash, char* path, char type, clientInfo_t *clientInfo){
 
     int fd;
+    char index_path[SMALLPATHLEN];
+    strcpy(index_path,clientInfo->username);
+    strcat(index_path,INDEX_PATH);
 
     // Open index in append mode (Create if doesnt exist)
-    fd = open("./.miniGit/index", O_RDWR | O_CREAT | O_APPEND, 0666);
+    fd = open(index_path, O_RDWR | O_CREAT | O_APPEND, 0666);
     if (fd < 0) perror("Error opening index: "), exit(1);
     
     // Write type 
@@ -693,7 +1253,7 @@ void updateIndex(char* hash, char* path, char type){
     if (close(fd) == -1) perror("Error closing index: "), exit(1);
 }
 
-void addAllFiles(char* basePath,char* prevFolder, int level)
+void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clientInfo)
 {
     /* 
     Function that adds every file behind basePath. In first call:
@@ -701,10 +1261,10 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
     level: Must be 0;
     */ 
 
-    char path[1000];
+    char path[PATHLEN];
     struct dirent *dp;
     DIR *dir = opendir(basePath);
-    char tempTreeFileName[1000];
+    char tempTreeFileName[PATHLEN];
     int fd_tree;
 
     // Hash blob objects ------------------------------------------------
@@ -712,8 +1272,8 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
     {
         // Create blob object and update index
         char hashBlob[2*SHA224_DIGEST_LENGTH];
-        hashObject('b',basePath,basePath,hashBlob,"-w");
-        updateIndex(hashBlob,basePath,'b');
+        hashObject('b',basePath,basePath,hashBlob,"-w", clientInfo);
+        updateIndex(hashBlob,basePath,'b', clientInfo);
 
         // Add hash to tree father
         if (level > 1)
@@ -766,7 +1326,7 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
             strcpy(path, basePath);
             strcat(path, "/");
             strcat(path, dp->d_name);
-            addAllFiles(path,basePath, level + 1);
+            addAllFiles(path, basePath, level + 1, clientInfo);
         }
     }
 
@@ -788,10 +1348,10 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
 
         // Compute folder hash and add to /objects
         char hashTree[2*SHA224_DIGEST_LENGTH];
-        hashObject('t',tempTreeFileName,basePath,hashTree,"-w");
+        hashObject('t', tempTreeFileName, basePath, hashTree, "-w", clientInfo);
         
         // Update index with folder and its hash
-        updateIndex(hashTree,basePath,'t');
+        updateIndex(hashTree,basePath,'t', clientInfo);
         
         // Remove temporal tree file
         if (remove(tempTreeFileName) == -1) perror("Error trying to remove './tempTree': "),exit(1);
@@ -819,11 +1379,22 @@ void addAllFiles(char* basePath,char* prevFolder, int level)
 // -----------------------------------------------------------------------------------------------------------
 // -----------------------------------------------------------------------------------------------------------
 
-void init()
+void init(clientInfo_t *clientInfo)
 {
+    // Define some paths
+    char minigit_path[SMALLPATHLEN], refs_path[SMALLPATHLEN], refs_head_path[SMALLPATHLEN], refs_head_master_path[SMALLPATHLEN];
+    strcpy(minigit_path, clientInfo->username);
+    strcat(minigit_path, MINIGIT_PATH);
+    strcpy(refs_path, clientInfo->username);
+    strcat(refs_path, REFS_PATH);
+    strcpy(refs_head_path, clientInfo->username);
+    strcat(refs_head_path, REFS_HEAD_PATH);
+    strcpy(refs_head_master_path, clientInfo->username);
+    strcat(refs_head_master_path, REFS_HEAD_MASTER_PATH);
+
     // Check if .miniGit folder exist
     bool repo_exist = false;
-    checkFileExistence(".",".miniGit",&repo_exist);
+    checkFileExistence(clientInfo->username,".miniGit",&repo_exist);
     if (repo_exist)
     {
         printf("A repository already exist in this folder. No init was made.\n");
@@ -831,48 +1402,33 @@ void init()
     }
 
     // Create miniGit folders
-    createFolder(".",".miniGit/");
-    createFolder(MINIGIT_PATH,"objects/");
-    createFolder(MINIGIT_PATH,"refs/");
-    createFolder(REFS_PATH,"head/");
-    createFolder(REFS_PATH,"origin/");
+    createFolder(".",clientInfo->username);
+    createFolder(clientInfo->username,".miniGit/");
+    createFolder(minigit_path,"objects/");
+    createFolder(minigit_path,"refs/");
+    createFolder(refs_path,"head/");
+    createFolder(refs_path,"origin/");
     
     // Create miniGit files
-    createFile(REFS_HEAD_PATH,"master","NONE");
-    createFile(MINIGIT_PATH,"index"," ");
-    createFile(MINIGIT_PATH,"HEAD",REFS_HEAD_MASTER_PATH);
+    createFile(refs_head_path,"master","NONE");
+    createFile(minigit_path,"index"," ");
+    createFile(minigit_path,"HEAD",refs_head_master_path);
 
 }
 
-void add(int argc, char *argv[])
-{
-
-    // Bad usage
-    if ((argc == 2) && (strcmp(argv[1],".")!=0)){
-        printf("Error!\n");
-        printf("Usage: './minimalAdd .' to add all files and folders.\n");
-        exit(1);
-    }
-
-    int n_files = argc - 1;
-
-    // Bad usage
-    if (n_files != 1){
-        printf("Error!\n");
-        printf("Usage: './minimalAdd .' to add all files and folders.\n");
-        exit(1);
-    }
-
+void add(clientInfo_t *clientInfo){
+    // Define some paths
+    char index_path[SMALLPATHLEN];
+    strcpy(index_path, clientInfo->username);
+    strcat(index_path, "/.miniGit/index");
     // Try to delete old index file
-    if (remove("./.miniGit/index") == -1) perror("'./.miniGIT/index' not found. Will be created: ");
+    remove(index_path);
 
     // Add for all files
-    if ((n_files == 1) && (strcmp(argv[1],".")==0)){
-        addAllFiles(".","",0);
-    }
+    addAllFiles(clientInfo->username, "", 0, clientInfo);
 }
 
-void commit(int argc, char *argv[], char* username){
+void commit(int argc, char *argv[], char* username, clientInfo_t *clientInfo){
 
     /* 
     Commit function. 
@@ -891,10 +1447,10 @@ void commit(int argc, char *argv[], char* username){
     int ret;
     
     // Create commit tree object
-    buildCommitTree(commitTreeHash);
+    buildCommitTree(commitTreeHash, clientInfo);
 
     // Create commit object
-    ret = buildCommitObject(argv[1],commitTreeHash,username,commitHash);
+    ret = buildCommitObject(argv[1], commitTreeHash, username, commitHash, clientInfo);
     if (ret == 0)
     {
         printf("Nothing to commit. Up to date\n");
@@ -902,7 +1458,7 @@ void commit(int argc, char *argv[], char* username){
     }
 
     // Update active branch
-    getActiveBranch(active_branch);
+    getActiveBranch(active_branch, clientInfo);
     updateBranch(active_branch,commitHash);
 
     // Print succes messages
