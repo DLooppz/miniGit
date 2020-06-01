@@ -234,8 +234,6 @@ enum Command typed2enum(const char *typedInCommand){ // Attention: if this is mo
         return c_ls;
     else if(strcmp(typedInCommand,"init")==0)
         return c_init;
-    else if(strcmp(typedInCommand,"commit")==0)
-        return c_commit;
     
     // If its none of the previous commands:
     char *token, *rest, aux[COMMANDLEN];
@@ -247,6 +245,8 @@ enum Command typed2enum(const char *typedInCommand){ // Attention: if this is mo
         return c_pull;
     else if(strcmp(token,"add")==0)
         return c_add;
+    else if(strcmp(token,"commit")==0)
+        return c_commit;
     else if(strcmp(token,"checkout")==0)
         return c_checkout;
     return c_wrongCommand;
@@ -297,6 +297,7 @@ void printFile(const char *filePath){
 }
 
 // The next functions tries to send a directory. If success, returns 1. If error in opening a folder, returns -1. If error in sending a file returns -2
+// If print is true, the function prints the directory except files inside .miniGit. Also, it doesnt "go" into the folder .miniGit, so if print and send are true, files inside .miniGit will no be send. On the other hand, if print is false and send is true, everything will be send, including .miniGit folder
 int sendDir(int socket, struct Packet *packet, const char *dirName, int level, bool send ,bool print, int exclude){
     DIR *dir;
     struct dirent *entry;
@@ -318,6 +319,9 @@ int sendDir(int socket, struct Packet *packet, const char *dirName, int level, b
             char path[PATHLEN];
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
+            if (print && startsWith(entry->d_name, ".miniGit"))
+                continue;
+            
             snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
             if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
             ret = sendDir(socket, packet, path, level + 1, send, print, exclude); // recursion
@@ -449,6 +453,11 @@ int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePat
     return 1;
 }
 
+bool startsWith(const char *a, const char *b){
+   if(strncmp(a, b, strlen(b)) == 0) return 1;
+   return 0;
+}
+
 int countOccurrences(char c, const char *string){
     int i, ret = 0, n = strlen(string);
     for(i = 0; i < n ; i++){
@@ -515,7 +524,27 @@ void getNthArg(const char * typedInCommand, int n, char * nthArg){
         i++;
     }
     bzero(nthArg,sizeof(nthArg));
-    
+}
+
+void getMsg(const char * typedInCommand, char * msg, int msgLen){
+    char *token, *rest, aux[COMMANDLEN];
+    strcpy(aux, typedInCommand);
+    rest = aux;
+
+    int i = 0;
+    strcpy(msg, "");
+    while((token = strtok_r(rest, " ", &rest))){
+        if( (msgLen - 1 - strlen(msg)) < strlen(token))
+            break;
+
+        if(i==1) 
+            strcat(msg, token);
+        else if(i!=0){
+            strcat(msg, " ");
+            strcat(msg, token);
+        } 
+        i++;
+    }
 }
 
 void printHelp(void){
@@ -852,7 +881,6 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
 }
 
 void hashObjectFromString(char type, char* content, char* hashName_out, char* creationFlag, clientInfo_t * clientInfo){
-
     char header[75];
     char contentPlusHeader[strlen(content)+75];
     
@@ -1004,7 +1032,6 @@ void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* u
 
 
 int getFileLevel(char* path){
-
     /* Returns file level in working dir as an int (First level: 0) */
     char *token, *string, *tofree;
     int level = -1;
@@ -1023,7 +1050,6 @@ int getFileLevel(char* path){
 }
 
 void getNameFromPath(char* path, char* name){
-
     /* Returns file name (last level in path) */
     char *token, *string, *tofree;
     char out[100];
@@ -1042,7 +1068,6 @@ void getNameFromPath(char* path, char* name){
 void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
 {
     /* The commit Tree is complete with the level zero files and dirs in index */
-
     FILE *index;
     char treeContent[TREE_MAX_SIZE];
     char buffer[PATHS_MAX_SIZE],type;
@@ -1052,12 +1077,12 @@ void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
     strcpy(index_path, clientInfo->username);
     strcat(index_path, INDEX_PATH);
     index = fopen(index_path,"rb");
+    bzero(treeContent,sizeof(treeContent));
 
     while(fgets(buffer, PATHS_MAX_SIZE, index))
     {
         // FILE
         if ( getFieldsFromIndex(buffer,hash,path) == 0 ){
-            
             // If file is in level 0, update tree
             if (getFileLevel(path) == 0)
             {
@@ -1075,7 +1100,6 @@ void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
 
         // DIR
         if ( getFieldsFromIndex(buffer,hash,path) == 1 ){
-            
             // If dir is in level 0, update tree
             if (getFileLevel(path) == 0)
             {
@@ -1091,7 +1115,7 @@ void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
         }
 
     }
-
+    printf("%s\n", treeContent);
     hashObjectFromString('t',treeContent,commitTreeHash,"-w", clientInfo);
 
     fclose(index);
@@ -1180,7 +1204,7 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
     
     char temp_commit_path[SMALLPATHLEN];
     strcpy(temp_commit_path,clientInfo->username);
-    strcpy(temp_commit_path,TEMP_COMMIT_PATH);
+    strcat(temp_commit_path,TEMP_COMMIT_PATH);
 
     // Create temporal file for commit object content
     fd_commit = open(temp_commit_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -1428,20 +1452,7 @@ void add(clientInfo_t *clientInfo){
     addAllFiles(clientInfo->username, "", 0, clientInfo);
 }
 
-void commit(int argc, char *argv[], char* username, clientInfo_t *clientInfo){
-
-    /* 
-    Commit function. 
-    argv[0] --> .c file name
-    argv[1] --> commit message. Use quotes to string-like message "This is a commit message"
-    */
-
-    // Bad usage
-    if (argc != 2){
-        printf("Error!\nUsage: './minimalCommit \"COMMIT MESSAGE\"\n");
-        exit(1);
-    }
-
+void commit(char* msg, clientInfo_t *clientInfo){
     char commitTreeHash[2*SHA_DIGEST_LENGTH], commitHash[2*SHA_DIGEST_LENGTH];
     char active_branch[PATHS_MAX_SIZE], branch_name[PATHS_MAX_SIZE];
     int ret;
@@ -1450,9 +1461,8 @@ void commit(int argc, char *argv[], char* username, clientInfo_t *clientInfo){
     buildCommitTree(commitTreeHash, clientInfo);
 
     // Create commit object
-    ret = buildCommitObject(argv[1], commitTreeHash, username, commitHash, clientInfo);
-    if (ret == 0)
-    {
+    ret = buildCommitObject(msg, commitTreeHash, clientInfo->username, commitHash, clientInfo);
+    if (ret == 0){
         printf("Nothing to commit. Up to date\n");
         return;
     }

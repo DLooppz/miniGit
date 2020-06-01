@@ -14,6 +14,7 @@
 #define USERFMT ".txt"
 #define TREE_MAX_SIZE 14000
 #define PATHS_MAX_SIZE 512
+#define MSGLEN 128
 #define MINIGIT_PATH "/.miniGit/"
 #define INDEX_PATH "/.miniGit/index"
 #define HEAD_PATH "/.miniGit/HEAD"
@@ -149,9 +150,11 @@ int sendDir(int socket, struct Packet *packet, const char *dirName, int level, b
 int sendFile(int socket, struct Packet *packet, const char *filename, int exclude);
 int recvDir(int socket, struct Packet *packet, const char *rootDir);
 int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePath);
+bool startsWith(const char *a, const char *b);
 int countOccurrences(char c, const char *string);
 int remove_directory(const char *path, const char *exclude);
 void getNthArg(const char * typedInCommand, int n, char * nthArg);
+void getMsg(const char * typedInCommand, char * msg, int msgLen);
 void printHelp(void);
 
 
@@ -184,7 +187,7 @@ void addAllFiles(char* basePath,char* prevFolder, int level, clientInfo_t *clien
 // User functions 
 void init(clientInfo_t *clientInfo);
 void add(clientInfo_t *clientInfo);
-void commit(int argc, char *argv[], char* username, clientInfo_t *clientInfo);
+void commit(char* msg, clientInfo_t *clientInfo);
 void cat_file(char* SHA1File, char* cat_type); /* "-p": content; "-t: type" */ // EASY TODO
 void hash_object(char* fileName, char* optionalArgs); /* -w: add object */ // EASY TODO
 

@@ -343,13 +343,29 @@ int main(){
                     break;
                 }
 
-                // Check if a message was inserted
+                // Get message
+                char msg[MSGLEN];
+                getMsg(typedInCommand, msg, MSGLEN);
 
+                // Check if message is not null
+                if(msg[0] == '\0'){
+                    printf("You must enter a message in a commit.\n");
+                    printf("Usage: commit YOUR MESSAGE HERE\n\n");
+                    break;
+                }    
+                
                 // ToDo check if USERNAME/.miniGit/index exists
-
+                char indexPath[SMALLPATHLEN];
+                strcpy(indexPath, clientInfo.username);
+                strcat(indexPath, INDEX_PATH);
+                if( access( indexPath, F_OK ) == -1 ) {
+                    printf("File %s must exist. Its possible that you did an `add` without any files in your working directory.\n", indexPath);
+                    printf("Try with adding some files. Then `add` and then `commit WITH YOUR COMMIT MESSAGE`\n\n");
+                    break;
+                }
 
                 // OK zone
-                //commit();
+                commit(msg, &clientInfo);
                 printf("\n");
                 break;
 
@@ -370,15 +386,16 @@ int main(){
 
                 // OK zone 
                 add(&clientInfo);
+                printf("Add finished\n");
                 printf("\n");
                 break;
             
             case c_checkout:
                 getNthArg(typedInCommand, 1, nThArg);
-                if(strlen(nThArg) == 2 * SHA_DIGEST_LENGTH){
-
+                if(strlen(nThArg) == (2 * SHA_DIGEST_LENGTH)){
+                    
                 } else {
-
+                    
                 }
                 break;
 
