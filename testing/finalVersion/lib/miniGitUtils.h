@@ -14,7 +14,6 @@
 #define USERFMT ".txt"
 #define TREE_MAX_SIZE 14000
 #define PATHS_MAX_SIZE 512
-#define TREE_LINE_MAX_SIZE 512
 #define MSGLEN 128
 #define MINIGIT_PATH "/.miniGit/"
 #define INDEX_PATH "/.miniGit/index"
@@ -185,7 +184,6 @@ bool checkUpToDate(clientInfo_t *clientInfo);
 int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut, clientInfo_t *clientInfo);
 void updateIndex(char* hash, char* path, char type, clientInfo_t *clientInfo);
 void addAllFiles(char* basePath,char* prevFolder, int level, clientInfo_t *clientInfo);
-int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientInfo);
 
 // -----------------------------------------------------------------------------------------------
 // User functions 

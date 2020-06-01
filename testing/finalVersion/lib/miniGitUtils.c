@@ -1065,9 +1065,6 @@ char* getContentFromObject(char* objectPath, char* type){
     bzero(buffer,sizeof(buffer));
     int i;
 
-    // Open object file
-    object = fopen(objectPath,"rb");
-
     // Get its size (content + header)
     fseek(object , 0L , SEEK_END); /* Set the file position indicator at the end */
     contentSize = ftell(object); /* Get the file position indicator */
@@ -1081,9 +1078,11 @@ char* getContentFromObject(char* objectPath, char* type){
     else
     {
         printf("Bad type requested: '%s'. Expecting '%s' or '%s'\nNothing to cat.\n",type,"-p","-t");
-        fclose(object);
         return NULL;
     }
+
+    // Open object file
+    object = fopen(objectPath,"rb");
 
     // Restore content depending type
     i = 0;
@@ -1448,6 +1447,19 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
     // No more entries: End of dir. Compute hash for tree and create TreeObject if level > 0
     if (level > 0)
     {
+        // Convert int level to string
+        char strLevel[3];
+        sprintf(strLevel, "%d", level-1);
+
+        // Mark trees with their level at the end
+        fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+        if (fd_tree < 0) perror("Error opening './tempTree' for level: "),exit(1);
+        
+        if (write(fd_tree, "\n", strlen("\n")) < 1) perror("Error writing '\\n' into './tempTree': "),exit(1);
+        if (write(fd_tree, strLevel, 3) < 1) perror("Error writing level into './tempTree': "),exit(1);
+        
+        if (close(fd_tree) == -1) perror("Error closing './tempTree' 3: "),exit(1);
+
         // Compute folder hash and add to /objects
         char hashTree[2*SHA224_DIGEST_LENGTH];
         hashObject('t', tempTreeFileName, basePath, hashTree, "-w", clientInfo);
@@ -1473,114 +1485,6 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
         }
     }
     closedir(dir);
-}
-
-int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientInfo){
-
-    /* 
-    Build up working directory from commitTree.
-    currenDirPath in first call MUST BE ./USERNAME
-    */
-    char buffer[TREE_LINE_MAX_SIZE];
-    char objectsPath[PATHS_MAX_SIZE];
-    char treeObjectPath[PATHS_MAX_SIZE];
-    char nextDir[PATHS_MAX_SIZE];
-    char type[2],entrieName[PATHS_MAX_SIZE],hash[2*SHA_DIGEST_LENGTH];
-    char pathToOldObject[PATHS_MAX_SIZE];
-    char *contentOfFileToCreate;
-
-    FILE* dirTree;
-    int findStatus = 0,line = 0;
-    
-    // Set correct path for searching treeHash
-    strcpy(objectsPath,"./");
-    strcat(objectsPath,clientInfo->username);
-    strcat(objectsPath,OBJECTS_PATH);
-
-    findObject(objectsPath,currentTreeHash,treeObjectPath,&findStatus);
-    if (findStatus == 0)
-    {
-        // Some error (throw 0). Dir before checkout must be restored
-        printf("Error. Couldn't build up directory. Please, try again\n");
-        return 0;
-    }
-
-    // Open tree object
-    dirTree = fopen(treeObjectPath,"rb");
-    
-
-    while (fgets(buffer,sizeof(buffer),dirTree))
-    {
-        // Omit header
-        if (line == 0)
-        {
-            line++;
-            continue;
-        }
-
-        // Delete possible '\n' at the end of line
-        buffer[strcspn(buffer, "\n")] = 0;
-
-        // Get type, hash and name
-        getNthArg(buffer,0,type);
-        getNthArg(buffer,1,entrieName);
-        getNthArg(buffer,2,hash);
-
-        // type == F: restore file
-        if (strcmp(type,"F") == 0)
-        {
-            int findStatus2 = 0;
-            findObject(objectsPath,hash,pathToOldObject,&findStatus2);
-            if (findStatus2 == 0)
-            {
-                // Some error (throw 0). Dir before checkout must be restored
-                printf("Error. Couldn't build up directory. Please, try again\n");
-                return 0;
-            }
-            // Get content --> dont forget to free!
-            contentOfFileToCreate = getContentFromObject(pathToOldObject,"-p");
-            createFile(currenDirPath,entrieName,contentOfFileToCreate);
-            free(contentOfFileToCreate);
-
-            // Clean buffer
-            bzero(buffer,sizeof(buffer));
-            continue;
-        }
-
-        // type == D: restore dir downstream
-        if (strcmp(type,"D") == 0)
-        {
-            int findStatus2 = 0;
-            findObject(objectsPath,hash,pathToOldObject,&findStatus2);
-            if (findStatus2 == 0)
-            {
-                // Some error (throw 0). Dir before checkout must be restored
-                printf("Error. Couldn't build up directory. Please, try again\n");
-                return 0;
-            }
-
-            // Create the folder
-            createFolder(currenDirPath,entrieName);
-
-            // Set paths for next level in dir
-            strcpy(nextDir,currenDirPath);
-            strcat(nextDir,"/");
-            strcat(nextDir,entrieName);
-            if (buildUpDir(nextDir,hash,clientInfo) == 0)
-            {
-                // Some error downstream. Throw zero too
-                return 0;
-            }
-
-            // Clean buffer
-            bzero(buffer,sizeof(buffer));
-        }
-
-    }
-    
-    // Close tree object file
-    fclose(dirTree);
-    return 1;
 }
 
 // -----------------------------------------------------------------------------------------------------------
