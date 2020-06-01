@@ -14,6 +14,7 @@
 #define USERFMT ".txt"
 #define TREE_MAX_SIZE 14000
 #define PATHS_MAX_SIZE 512
+#define TREE_LINE_MAX_SIZE 512
 #define MSGLEN 128
 #define MINIGIT_PATH "/.miniGit/"
 #define INDEX_PATH "/.miniGit/index"
@@ -172,16 +173,19 @@ void hashObjectFromString(char type, char* content, char* hashName_out, char* cr
 int getFieldsFromIndex(char* index_line, char* hash_out, char* path_out);
 void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user);
 int getFileLevel(char* path);
+char* getContentFromObject(char* objectPath, char* type);
 void getNameFromPath(char* path, char* name);
-void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo);
+void buildCommitTree(char* commitTreeHash, char* creationFlag, clientInfo_t *clientInfo);
 void getActiveBranch(char* branch_path, clientInfo_t *clientInfo);
 void setActiveBranch(char* branchName); // TODO
 void updateBranch(char* branchPath, char* newCommitHash);
 void getLastCommit(char* commitFatherHash, clientInfo_t *clientInfo);
 void getCommitFather(char* commitFatherHash);
+bool checkUpToDate(clientInfo_t *clientInfo);
 int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut, clientInfo_t *clientInfo);
 void updateIndex(char* hash, char* path, char type, clientInfo_t *clientInfo);
 void addAllFiles(char* basePath,char* prevFolder, int level, clientInfo_t *clientInfo);
+int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientInfo);
 
 // -----------------------------------------------------------------------------------------------
 // User functions 

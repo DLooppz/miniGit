@@ -807,7 +807,7 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
     */
 
     FILE *original_file;
-    long lSize;
+    long contentSize;
     long headerSize;
     char *content, *contentPlusHeader;
     char header[75];
@@ -818,23 +818,23 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
 
     // Get size of file
     fseek(original_file , 0L , SEEK_END); /* Set the file position indicator at the end */
-    lSize = ftell(original_file); /* Get the file position indicator */
+    contentSize = ftell(original_file); /* Get the file position indicator */
     rewind(original_file);
 
     // Build header 
-    buildHeader(type,lSize-1,header);
+    buildHeader(type,contentSize-1,header);
     headerSize = strlen(header);
 
     // allocate memory for content
-    content = calloc(1, lSize);
+    content = calloc(1, contentSize);
     if(!content) fclose(original_file),fputs("memory alloc fails",stderr),exit(1);
 
     // copy the file content into the content (string containing the whole text ; Omit \0)
-    if(fread( content , lSize-1, 1 , original_file) != 1)
+    if(fread( content , contentSize-1, 1 , original_file) != 1)
         fclose(original_file),free(content),fputs("entire read fails",stderr),exit(1);
 
     // Concatenate content + header
-    contentPlusHeader = calloc(1, lSize + headerSize);
+    contentPlusHeader = calloc(1, contentSize + headerSize);
     if(!contentPlusHeader) fclose(original_file),free(content),fputs("memory alloc fails",stderr),exit(1);
     strcat(contentPlusHeader,header);
     strcat(contentPlusHeader,content);
@@ -1049,6 +1049,66 @@ int getFileLevel(char* path){
     return level-1;
 }
 
+char* getContentFromObject(char* objectPath, char* type){
+
+    /* 
+    Returns content of object (type == "-p") or header of object (type == "-t")
+    Must free after use it
+    If type is incorrect returns NULL
+    */
+    
+    FILE* object;
+    long contentSize;
+    long headerSize = 75;
+    char *content, *header;
+    char buffer[1000];
+    bzero(buffer,sizeof(buffer));
+    int i;
+
+    // Open object file
+    object = fopen(objectPath,"rb");
+
+    // Get its size (content + header)
+    fseek(object , 0L , SEEK_END); /* Set the file position indicator at the end */
+    contentSize = ftell(object); /* Get the file position indicator */
+    rewind(object);
+
+    // Alloc memory depending type 
+    if (strcmp(type,"-p")==0)
+        content = calloc(1,contentSize);
+    else if (strcmp(type,"-t")==0)
+        header = calloc(1,headerSize);
+    else
+    {
+        printf("Bad type requested: '%s'. Expecting '%s' or '%s'\nNothing to cat.\n",type,"-p","-t");
+        fclose(object);
+        return NULL;
+    }
+
+    // Restore content depending type
+    i = 0;
+    while (fgets(buffer,1000,object))
+    {
+        if (i==0 && strcmp(type,"-t")==0)
+        {
+            strcat(header,buffer);
+            header[strcspn(header, "\n")] = 0;
+            fclose(object);
+            return header;
+        }
+        else if (i>0 && strcmp(type,"-p")==0)
+        {
+            strcat(content,buffer);
+        }
+        i++;
+    }
+    
+    // If code is here, must return content
+    fclose(object);
+    return content;
+}
+
+
 void getNameFromPath(char* path, char* name){
     /* Returns file name (last level in path) */
     char *token, *string, *tofree;
@@ -1065,7 +1125,7 @@ void getNameFromPath(char* path, char* name){
     free(tofree);
 }
 
-void buildCommitTree(char* commitTreeHash, clientInfo_t *clientInfo)
+void buildCommitTree(char* commitTreeHash, char* creationFlag, clientInfo_t *clientInfo)
 {
     /* The commit Tree is complete with the level zero files and dirs in index */
     FILE *index;
@@ -1174,37 +1234,68 @@ void getLastCommit(char* commitFatherHash, clientInfo_t *clientInfo){
     fclose(branch);
 }
 
-int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut, clientInfo_t * clientInfo){
+bool checkUpToDate(clientInfo_t *clientInfo){
 
-    int fd_commit,findStatus=0;
-    char prevCommit[2*SHA_DIGEST_LENGTH];
+    /* 
+    Make a virtual tree of current staging area and compares with prev CommitTree 
+    For first commit: return False
+    For upToDate: return True
+    For prevCommitTree != Current VirtualTree based in staging area: return False
+    */
+    
+    char virtualTreeHash[2*SHA_DIGEST_LENGTH];
+    char prevCommitHash[2*SHA_DIGEST_LENGTH];
     char prevCommit_path[PATHS_MAX_SIZE];
     char prevCommitTreeHash[2*SHA_DIGEST_LENGTH];
     char prevCommitTree_path[PATHS_MAX_SIZE];
+    int findStatus = 0;
 
-    // Check if nothing has changed (up to date)
-    getLastCommit(prevCommit, clientInfo);
+    // Compute hash of virtual tree with staging area. Don't create it
+    buildCommitTree(virtualTreeHash,"",clientInfo);
+
+    // Get prev commit to look for its tree
+    getLastCommit(prevCommitHash, clientInfo);
     
     // If not the first commit, search prev tree
-    if (strcmp(prevCommit,"NONE") != 0)
+    if (strcmp(prevCommitHash,"NONE") != 0)
     {
         char objects_path[SMALLPATHLEN];
         strcpy(objects_path, clientInfo->username);
         strcat(objects_path, OBJECTS_PATH);
-        findObject(objects_path, prevCommit,prevCommit_path,&findStatus);
+        findObject(objects_path, prevCommitHash,prevCommit_path,&findStatus);
         getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL);
         
-        prevCommit_path[strcspn(commitTreeHash, "\n")] = 0;
+        // Remove posible '\n' at the end
+        virtualTreeHash[strcspn(virtualTreeHash, "\n")] = 0;
         prevCommitTreeHash[strcspn(prevCommitTreeHash, "\n")] = 0;
 
-        // If current CommitTreeHash and prev commitTreeHash are the same, return. Up to date
-        if (strcmp(prevCommitTreeHash,commitTreeHash) == 0)
-            return 0;
+        // If current virtualTreeHash and prev commitTreeHash are the same, return true: Up to date
+        if (strcmp(prevCommitTreeHash,virtualTreeHash) == 0)
+            return true;
+        
+        // Not upToDate: changes were made
+        else
+            return false;
     }
+
+    // Not UpToDate: first commit
+    return false;
+}
+
+int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, char* commitHashOut, clientInfo_t * clientInfo){
+
+    // Check if repo is up to date
+    if (checkUpToDate(clientInfo))
+        return 0;
     
+    int fd_commit;
+    char prevCommitHash[2*SHA_DIGEST_LENGTH];
     char temp_commit_path[SMALLPATHLEN];
     strcpy(temp_commit_path,clientInfo->username);
     strcat(temp_commit_path,TEMP_COMMIT_PATH);
+
+    // Get prev commit to append
+    getLastCommit(prevCommitHash, clientInfo);
 
     // Create temporal file for commit object content
     fd_commit = open(temp_commit_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -1217,7 +1308,7 @@ int buildCommitObject(char* commitMessage, char* commitTreeHash, char* user, cha
 
     // Append previous commit (First commit will have 'NONE')
     if (write(fd_commit, "commit ", strlen("commit ")) < 1) perror("Error writing 'commit ' into './tempCommit': "),exit(1);
-    if (write(fd_commit, prevCommit, strlen(prevCommit)) < 1) perror("Error writing 'prevCommit' into './tempCommit': "),exit(1);
+    if (write(fd_commit, prevCommitHash, strlen(prevCommitHash)) < 1) perror("Error writing 'prevCommitHash' into './tempCommit': "),exit(1);
     if (write(fd_commit, "\n ", 1) < 1) perror("Error writing '\\n' into './tempCommit': "),exit(1);
 
     // Append commiter (user)
@@ -1357,19 +1448,6 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
     // No more entries: End of dir. Compute hash for tree and create TreeObject if level > 0
     if (level > 0)
     {
-        // Convert int level to string
-        char strLevel[3];
-        sprintf(strLevel, "%d", level-1);
-
-        // Mark trees with their level at the end
-        fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-        if (fd_tree < 0) perror("Error opening './tempTree' for level: "),exit(1);
-        
-        if (write(fd_tree, "\n", strlen("\n")) < 1) perror("Error writing '\\n' into './tempTree': "),exit(1);
-        if (write(fd_tree, strLevel, 3) < 1) perror("Error writing level into './tempTree': "),exit(1);
-        
-        if (close(fd_tree) == -1) perror("Error closing './tempTree' 3: "),exit(1);
-
         // Compute folder hash and add to /objects
         char hashTree[2*SHA224_DIGEST_LENGTH];
         hashObject('t', tempTreeFileName, basePath, hashTree, "-w", clientInfo);
@@ -1395,6 +1473,114 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
         }
     }
     closedir(dir);
+}
+
+int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientInfo){
+
+    /* 
+    Build up working directory from commitTree.
+    currenDirPath in first call MUST BE ./USERNAME
+    */
+    char buffer[TREE_LINE_MAX_SIZE];
+    char objectsPath[PATHS_MAX_SIZE];
+    char treeObjectPath[PATHS_MAX_SIZE];
+    char nextDir[PATHS_MAX_SIZE];
+    char type[2],entrieName[PATHS_MAX_SIZE],hash[2*SHA_DIGEST_LENGTH];
+    char pathToOldObject[PATHS_MAX_SIZE];
+    char *contentOfFileToCreate;
+
+    FILE* dirTree;
+    int findStatus = 0,line = 0;
+    
+    // Set correct path for searching treeHash
+    strcpy(objectsPath,"./");
+    strcat(objectsPath,clientInfo->username);
+    strcat(objectsPath,OBJECTS_PATH);
+
+    findObject(objectsPath,currentTreeHash,treeObjectPath,&findStatus);
+    if (findStatus == 0)
+    {
+        // Some error (throw 0). Dir before checkout must be restored
+        printf("Error. Couldn't build up directory. Please, try again\n");
+        return 0;
+    }
+
+    // Open tree object
+    dirTree = fopen(treeObjectPath,"rb");
+    
+
+    while (fgets(buffer,sizeof(buffer),dirTree))
+    {
+        // Omit header
+        if (line == 0)
+        {
+            line++;
+            continue;
+        }
+
+        // Delete possible '\n' at the end of line
+        buffer[strcspn(buffer, "\n")] = 0;
+
+        // Get type, hash and name
+        getNthArg(buffer,0,type);
+        getNthArg(buffer,1,entrieName);
+        getNthArg(buffer,2,hash);
+
+        // type == F: restore file
+        if (strcmp(type,"F") == 0)
+        {
+            int findStatus2 = 0;
+            findObject(objectsPath,hash,pathToOldObject,&findStatus2);
+            if (findStatus2 == 0)
+            {
+                // Some error (throw 0). Dir before checkout must be restored
+                printf("Error. Couldn't build up directory. Please, try again\n");
+                return 0;
+            }
+            // Get content --> dont forget to free!
+            contentOfFileToCreate = getContentFromObject(pathToOldObject,"-p");
+            createFile(currenDirPath,entrieName,contentOfFileToCreate);
+            free(contentOfFileToCreate);
+
+            // Clean buffer
+            bzero(buffer,sizeof(buffer));
+            continue;
+        }
+
+        // type == D: restore dir downstream
+        if (strcmp(type,"D") == 0)
+        {
+            int findStatus2 = 0;
+            findObject(objectsPath,hash,pathToOldObject,&findStatus2);
+            if (findStatus2 == 0)
+            {
+                // Some error (throw 0). Dir before checkout must be restored
+                printf("Error. Couldn't build up directory. Please, try again\n");
+                return 0;
+            }
+
+            // Create the folder
+            createFolder(currenDirPath,entrieName);
+
+            // Set paths for next level in dir
+            strcpy(nextDir,currenDirPath);
+            strcat(nextDir,"/");
+            strcat(nextDir,entrieName);
+            if (buildUpDir(nextDir,hash,clientInfo) == 0)
+            {
+                // Some error downstream. Throw zero too
+                return 0;
+            }
+
+            // Clean buffer
+            bzero(buffer,sizeof(buffer));
+        }
+
+    }
+    
+    // Close tree object file
+    fclose(dirTree);
+    return 1;
 }
 
 // -----------------------------------------------------------------------------------------------------------
@@ -1458,7 +1644,7 @@ void commit(char* msg, clientInfo_t *clientInfo){
     int ret;
     
     // Create commit tree object
-    buildCommitTree(commitTreeHash, clientInfo);
+    buildCommitTree(commitTreeHash,"-w", clientInfo);
 
     // Create commit object
     ret = buildCommitObject(msg, commitTreeHash, clientInfo->username, commitHash, clientInfo);
