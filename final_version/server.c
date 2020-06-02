@@ -164,6 +164,9 @@ void * clientThread(void *arg){
 }
 
 int main(){
+    // Clear screen
+    clearScreen();
+
     // Variables
     int opt = 1, serverSocket, newSocket, i = 0;
     struct sockaddr_in serverAddr, newSocketAddr;

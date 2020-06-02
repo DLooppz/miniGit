@@ -17,6 +17,9 @@
 #include"lib/miniGitUtils.h"
 
 int main(){
+    // Clear screen
+    clearScreen();
+
     // Variables
     int opt = 1, ret;
     clientInfo_t clientInfo;
@@ -240,10 +243,10 @@ int main(){
                     printf("You can use the command ls to check your data.\n");
                 }
                 else if(clientInfo.signedIn == true){
-                    printf("Pulled successfully (Data saved in ./%s_CLONED)\n",nThArg);
+                    printf("Cloned successfully (Data saved in ./%s_CLONED)\n",nThArg);
                     printf("You have pulled a repo that belongs to other user. Your working directory remains exactly the same.\n");
                 } else
-                    printf("Pulled successfully (Data saved in ./%s_CLONED)\n",nThArg);
+                    printf("Cloned successfully (Data saved in ./%s_CLONED)\n",nThArg);
                 printf("\n");
                 break;
 
@@ -305,7 +308,7 @@ int main(){
                 break;
             
             case c_clearScreen:
-                printf("\e[1;1H\e[2J");
+                clearScreen();
                 break;
             
             case c_ls:

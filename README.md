@@ -1,23 +1,32 @@
 # miniGit
 Implementation of a dummy git with server/cloud storage
 
-## Notes
-**zLib Usage Example**
+## Ideas for live demo (in order)
+First time
+1. Run ./server and ./miniGit
+1. `help`
+1. Try to `init`
+1. `signup`
+1. `signin` or `login`
+1. Try to `add`
+1. `init`
+1. `add`
+1. Try to `commit MSG`
+1. Add some files
+1. `ls`
+1. `commit`without things on stage area
+1. `add` and `commit MSG`
+1. Add more files
+1. `add` and `commit`
+1. `checkout HASH` to see the changes in files
+1. `push`
+1. `logout`
 
-[Link](https://zlib.net/manual.html) - Edu whatsapp link
-
-**Is it possible to establish a connection between two PCs (not in LAN)?**
-
-[Link](https://stackoverflow.com/questions/18021189/how-to-connect-two-computers-over-internet-using-socket-programming-in-c) - Short answert, No
-
-**Multithreading server using TCP/IP**
-
-[Link](https://dzone.com/articles/parallel-tcpip-socket-server-with-multi-threading) - Very nice explanation and code
-
-**How to transfer files using UDP**
-
-[Link](https://www.geeksforgeeks.org/c-program-for-file-transfer-using-udp/) - I think this will be important
-
-**Some usefull things about forking and threading**
-
-[Link](https://stackoverflow.com/questions/16354460/forking-vs-threading) - This is not so important. I leave it here just in case
+Second time
+1. `login`
+1. `pull`
+1. `ls`
+1. `checkout HASH`
+1. `ls`
+1. `clone USERNAME`
+1. `ls` to check that working directory doesnt change with a `clone USERNAME`

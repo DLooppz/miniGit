@@ -582,6 +582,10 @@ printf("------------------------------------------------------------------\n");
 printf("------------------------------------------------------------------\n");
 }
 
+void clearScreen(void){
+    printf("\e[1;1H\e[2J");
+}
+
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
 {
     /* Function that searchs fileToFind and stores "1" in findStatus if found */
