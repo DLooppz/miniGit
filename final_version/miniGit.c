@@ -392,11 +392,13 @@ int main(){
             
             case c_checkout:
                 getNthArg(typedInCommand, 1, nThArg);
-                if(strlen(nThArg) == (2 * SHA_DIGEST_LENGTH)){
-                    
-                } else {
-                    
-                }
+                char returnedMessage[512];
+                
+                if (checkout(nThArg, &clientInfo, returnedMessage) == 0)
+                    printf("Error!\n%s",returnedMessage);
+                else
+                    printf("Success!\n%s",returnedMessage);
+                
                 break;
 
             case c_wrongCommand:

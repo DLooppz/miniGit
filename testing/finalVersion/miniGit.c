@@ -392,11 +392,8 @@ int main(){
             
             case c_checkout:
                 getNthArg(typedInCommand, 1, nThArg);
-                if(strlen(nThArg) == (2 * SHA_DIGEST_LENGTH)){
-                    
-                } else {
-                    
-                }
+
+                checkout()
                 break;
 
             case c_wrongCommand:

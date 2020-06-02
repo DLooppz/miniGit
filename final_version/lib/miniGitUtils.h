@@ -154,6 +154,7 @@ int recvFile(int socket, struct Packet *packet, uint32_t fileSize, char *filePat
 bool startsWith(const char *a, const char *b);
 int countOccurrences(char c, const char *string);
 int remove_directory(const char *path, const char *exclude);
+int clean_directory(const char *path, const char *exclude, char* miniGitPath);
 void getNthArg(const char * typedInCommand, int n, char * nthArg);
 void getMsg(const char * typedInCommand, char * msg, int msgLen);
 void printHelp(void);
@@ -177,7 +178,7 @@ char* getContentFromObject(char* objectPath, char* type);
 void getNameFromPath(char* path, char* name);
 void buildCommitTree(char* commitTreeHash, char* creationFlag, clientInfo_t *clientInfo);
 void getActiveBranch(char* branch_path, clientInfo_t *clientInfo);
-void setActiveBranch(char* branchName); // TODO
+void setActiveBranch(char* branchName,clientInfo_t *clientInfo);
 void updateBranch(char* branchPath, char* newCommitHash);
 void getLastCommit(char* commitFatherHash, clientInfo_t *clientInfo);
 void getCommitFather(char* commitFatherHash);
@@ -194,9 +195,7 @@ void add(clientInfo_t *clientInfo);
 void commit(char* msg, clientInfo_t *clientInfo);
 void cat_file(char* SHA1File, char* cat_type); /* "-p": content; "-t: type" */ // EASY TODO
 void hash_object(char* fileName, char* optionalArgs); /* -w: add object */ // EASY TODO
-
-void checkout(char* branchname); // TODO
-void checkoutCommit(char* SHA1Commit); // TODO
+int checkout(char* version, clientInfo_t *clientInfo, char* mssg);
 //void log(char* SHA1Commit); /* By default, master */ //TODO
 
 #endif
