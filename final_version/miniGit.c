@@ -354,12 +354,13 @@ int main(){
                     break;
                 }    
                 
-                // ToDo check if USERNAME/.miniGit/index exists
+                // Check if USERNAME/.miniGit/index exists
                 char indexPath[SMALLPATHLEN];
                 strcpy(indexPath, clientInfo.username);
                 strcat(indexPath, INDEX_PATH);
-                if( access( indexPath, F_OK ) == -1 ) {
-                    printf("File %s must exist. Its possible that you did an `add` without any files in your working directory.\n", indexPath);
+                if( simpleCheckFileExistance(indexPath) == -1 ) {
+                    printf("You must use the command `add` before `commit`\n");
+                    printf("In case you did an `add` its possible that you did it without any files in your working directory.\n");
                     printf("Try with adding some files. Then `add` and then `commit WITH YOUR COMMIT MESSAGE`\n\n");
                     break;
                 }
@@ -373,6 +374,14 @@ int main(){
                 // Check if signed in
                 if(!isSignedIn(&clientInfo)){
                     printf("You are not signed in\n\n");
+                    break;
+                }
+
+                char miniGitPath[SMALLPATHLEN];
+                strcpy(miniGitPath, clientInfo.username);
+                strcat(miniGitPath, "/.miniGit");
+                if( simpleCheckFileExistance(miniGitPath) == -1 ) {
+                    printf("You need to use the command `init` before `add`\n\n");
                     break;
                 }
 
