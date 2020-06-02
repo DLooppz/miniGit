@@ -161,6 +161,7 @@ int remove_directory(const char *path, const char *exclude);
 void getNthArg(const char * typedInCommand, int n, char * nthArg);
 void getMsg(const char * typedInCommand, char * msg, int msgLen);
 void printHelp(void);
+void clearScreen(void);
 
 
 // -----------------------------------------------------------------------------------------------
