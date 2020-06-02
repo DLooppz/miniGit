@@ -26,6 +26,10 @@
 #define REFS_HEAD_MASTER_PATH "/.miniGit/refs/head/master"
 #define TEMP_COMMIT_TREE_PATH "/.miniGit/tempCommitTree"
 #define TEMP_COMMIT_PATH "/.miniGit/tempCommit"
+#define COLOR_BOLD_GREEN "\033[1;32m"
+#define COLOR_GREEN "\033[0;32m"
+#define COLOR_BOLD_BLUE "\033[1;34m"
+#define COLOR_RESET "\033[0m"
 
 #include<stdlib.h>
 #include<stdio.h>
@@ -162,6 +166,7 @@ void printHelp(void);
 // -----------------------------------------------------------------------------------------------
 // Backend functions
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus);
+int simpleCheckFileExistance(char *filePath);
 void createFolder(char* prevFolderPath, char* folderName);
 void createFile(char* folderPath, char* fileName, char* content);
 void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatus);
