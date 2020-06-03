@@ -203,6 +203,7 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
 }
 
 void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
+    printf(COLOR_BOLD_GREEN);
     bzero(dest,sizeof(dest));
     if(isSignedIn(clientInfo))
         printf("%s@miniGit: ",clientInfo->username);
@@ -210,6 +211,7 @@ void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const cha
         printf("@miniGit: ");
     if(msg!=NULL && strcmp(msg,"")!=0)
         printf("%s> ",msg);
+    printf(COLOR_RESET);
     fgets(dest, maxLength, stdin);
     if ((strlen(dest) > 0) && (dest[strlen (dest) - 1] == '\n'))
         dest[strlen (dest) - 1] = '\0';
@@ -323,14 +325,18 @@ int sendDir(int socket, struct Packet *packet, const char *dirName, int level, b
                 continue;
             
             snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
-            if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
+            if(print){
+                printf(COLOR_BOLD_BLUE);
+                printf("%*s%s\n", (level * 2), "", entry->d_name);
+                printf(COLOR_RESET);
+            }
             ret = sendDir(socket, packet, path, level + 1, send, print, exclude); // recursion
             if(ret != 1)    
                 return ret;
         } 
         // Else if entry is a file
         else {
-            if(print) printf("%*s- %s\n", (level * 2), "", entry->d_name);
+            if(print) printf("%*s%s\n", (level * 2), "", entry->d_name);
             if(send){
                 char fileName[PATHLEN];
                 snprintf(fileName, sizeof(fileName), "%s/%s", dirName, entry->d_name);
@@ -597,26 +603,30 @@ printf("                         Use of miniGit\n");
 printf("------------------------------------------------------------------\n");
 printf("------------------------------------------------------------------\n");
 printf("Accepted commands:\n");
-printf("username@miniGit: Enter command> help\n");
-printf("username@miniGit: Enter command> init\n");
-printf("username@miniGit: Enter command> add or add .\n");
-printf("username@miniGit: Enter command> commit YOUR MSG WITH WHITESPACES ALLOWED\n");
-printf("username@miniGit: Enter command> checkout HASH 'or' checkout BRANCH\n");
-printf("username@miniGit: Enter command> clone USERNAME\n");
-printf("username@miniGit: Enter command> clear\n");
-printf("username@miniGit: Enter command> exit 'OR' stop\n");
+printf("%susername@miniGit: Enter command>%s help\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s init\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s add or add .\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s commit YOUR MSG WITH WHITESPACES ALLOWED\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s checkout HASH 'or' checkout BRANCH\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s clone USERNAME\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s clear\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s exit 'OR' stop\n",COLOR_GREEN, COLOR_RESET);
 printf("\n");
 printf("Accepted commands when not signed in (ONLY):\n");
-printf("@miniGit: Enter command> login 'or' signin\n");
-printf("@miniGit: Enter command> signup 'or' register\n");
+printf("%s@miniGit: Enter command>%s login 'or' signin\n",COLOR_GREEN, COLOR_RESET);
+printf("%s@miniGit: Enter command>%s signup 'or' register\n",COLOR_GREEN, COLOR_RESET);
 printf("\n");
 printf("Accepted commands when signed in (ONLY):\n");
-printf("username@miniGit: Enter command> pull\n");
-printf("username@miniGit: Enter command> push\n");
-printf("username@miniGit: Enter command> ls\n");
-printf("username@miniGit: Enter command> logout 'or' signout\n");
+printf("%susername@miniGit: Enter command>%s pull\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s push\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s ls\n",COLOR_GREEN, COLOR_RESET);
+printf("%susername@miniGit: Enter command>%s logout 'or' signout\n",COLOR_GREEN, COLOR_RESET);
 printf("------------------------------------------------------------------\n");
 printf("------------------------------------------------------------------\n");
+}
+
+void clearScreen(void){
+    printf("\e[1;1H\e[2J");
 }
 
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
@@ -657,6 +667,10 @@ void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
         }
     }
     closedir(dir);
+}
+
+int simpleCheckFileExistance(char *filePath){
+    return access(filePath, F_OK);
 }
 
 void createFolder(char* prevFolderPath, char* folderName){
@@ -1218,7 +1232,6 @@ void buildCommitTree(char* commitTreeHash, char* creationFlag, clientInfo_t *cli
         }
 
     }
-    printf("%s\n", treeContent);
     hashObjectFromString('t',treeContent,commitTreeHash,"-w", clientInfo);
 
     fclose(index);
@@ -1232,7 +1245,7 @@ void getActiveBranch(char* branch_path, clientInfo_t *clientInfo){
     strcpy(head_path, clientInfo->username);
     strcat(head_path, HEAD_PATH);
     head = fopen(head_path,"rb");
-    if (head == NULL) perror("Error opening branch file: "), exit(1);
+    if (head == NULL) perror("Error opening branch file: "), exit(EXIT_FAILURE);
 
     fgets(branch_path,PATHS_MAX_SIZE,head);
     fclose(head);
@@ -1442,7 +1455,6 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
     {
         // Create blob object and update index
         char hashBlob[2*SHA224_DIGEST_LENGTH];
-        printf("basepath: %s\n",basePath);
         hashObject('b',basePath,basePath,hashBlob,"-w", clientInfo);
         updateIndex(hashBlob,basePath,'b', clientInfo);
 
@@ -1679,13 +1691,12 @@ void init(clientInfo_t *clientInfo)
     createFile(refs_head_path,"master","NONE");
     createFile(minigit_path,"index"," ");
     createFile(minigit_path,"HEAD",refs_head_master_path);
-
+    printf("Init finished\n");
 }
 
 void add(clientInfo_t *clientInfo){
     // Define some paths
     char index_path[SMALLPATHLEN];
-    char userDir[SMALLPATHLEN];
     strcpy(index_path, clientInfo->username);
     strcat(index_path, "/.miniGit/index");
     // Try to delete old index file
