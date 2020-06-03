@@ -1847,7 +1847,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
 
         // Check if commitHash is NONE
         if (strcmp(commitHash,"NONE") == 0){
-            sprintf(mssg,"Branch '%s' has no initial commit. Current branch '%s' remains active.\n", version, currentBranchName);
+            sprintf(mssg,"Branch '%s' has no initial commit. Current branch '%s' remains active\n", version, currentBranchName);
             fclose(branchFile);
             return 0;
         }
@@ -1864,7 +1864,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     if (findStatus == 0)
     {
         // Some error finding commit object
-        sprintf(mssg,"Couldn't build up directory. Please, try again\n");
+        sprintf(mssg,"Version inserted doesnt exist. Current branch '%s' remains active\n", currentBranchName);
         return 0;
     }
 
@@ -1915,19 +1915,8 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         findObject(objects_path, commitHash,commitPath,&findStatus);
         if (findStatus == 0)
         {
-            // Some error finding commit object. MUST FIND! LOOK AGAIN
-            findObject(objects_path, commitHash,commitPath,&findStatus);
-            if (findStatus == 0)
-            {
-                // LAST OPORTUNITY! :(
-                findObject(objects_path, commitHash,commitPath,&findStatus);
-                if (findStatus == 0)
-                {
-                    sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you finding prevCommit. You must pull to recover your data... :0\n");
-                    return 0;
-                }
-
-            }
+            sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you finding prevCommit. You must pull to recover your data... :0\n");
+            return 0;
         }
 
         // Commit found. Get its tree hash
@@ -1935,11 +1924,8 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         treeHash[strcspn(treeHash, "\n")] = 0;
 
         if (buildUpDir(userDir,treeHash,clientInfo) == 0){
-            // Please, try again... come on!
-            if (buildUpDir(userDir,treeHash,clientInfo) == 0){
-                sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you restoring prevVersion. You must pull to recover your data... :0\n");
-                return 0; 
-            }
+            sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you restoring prevVersion. You must pull to recover your data... :0\n");
+            return 0; 
         }
 
         // Prev version could be restored
