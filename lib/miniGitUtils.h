@@ -66,6 +66,7 @@ enum Command {      // Attention: if this is modified, function typed2enum shoul
     c_push,
     c_pull,
     c_add,
+    c_cat_file
     c_commit,
     c_init,
     c_wrongCommand,
@@ -199,7 +200,7 @@ int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientI
 void init(clientInfo_t *clientInfo);
 void add(clientInfo_t *clientInfo);
 void commit(char* msg, clientInfo_t *clientInfo);
-void cat_file(char* SHA1File, char* cat_type); /* "-p": content; "-t: type" */ // EASY TODO
+int cat_file(char* objectHash, char* cat_type, clientInfo_t *clientInfo, char* mssg); /* "-p": content; "-t: type" */
 void hash_object(char* fileName, char* optionalArgs); /* -w: add object */ // EASY TODO
 int checkout(char* version, clientInfo_t *clientInfo, char* mssg);
 //void log(char* SHA1Commit); /* By default, master */ //TODO

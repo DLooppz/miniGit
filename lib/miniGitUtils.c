@@ -1133,8 +1133,8 @@ char* getContentFromObject(char* objectPath, char* type){
 
     /* 
     Returns content of object (type == "-p") or header of object (type == "-t")
-    Must free after use it
     If type is incorrect returns NULL
+    ¡¡ Must free after use it !!
     */
     
     FILE* object;
@@ -1948,5 +1948,41 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         setActiveBranch(version,clientInfo);
         sprintf(mssg,"Branch '%s' is active now!\n",version);
     }
+    return 1;
+}
+
+int cat_file(char* objectHash, char* cat_type, clientInfo_t *clientInfo, char* mssg)
+{
+    /* Cat SHA1 object ; "-p": content; "-t: type" */
+    
+    char basePath[PATHS_MAX_SIZE];
+    char objectPath[PATHS_MAX_SIZE];
+    char *content; /* Remember to free */
+    int findStatus = 0;
+
+    // Set objects path
+    bzero(basePath,sizeof(basePath));
+    strcpy(basePath,clientInfo->username);
+    strcat(basePath,"/.miniGit/objects");
+
+    // Find object path
+    findObject(basePath,objectHash,objectPath,&findStatus);
+    if (findStatus == 0)
+    {
+        sprintf(mssg,"Object with hash %s doesn't exist!\n",objectHash);
+        return 0;
+    }
+
+    // Get content
+    content = getContentFromObject(objectPath,cat_type);
+    if (content == NULL)
+    {
+        sprintf(mssg,"Please, try again\n");
+        return 0;
+    }
+
+    // Print content requested:
+    printf("%s\n",content);
+    free(content);
     return 1;
 }
