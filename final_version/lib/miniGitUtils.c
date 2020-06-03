@@ -203,7 +203,6 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
 }
 
 void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
-    printf(COLOR_BOLD_GREEN);
     bzero(dest,sizeof(dest));
     if(isSignedIn(clientInfo))
         printf("%s@miniGit: ",clientInfo->username);
@@ -211,7 +210,6 @@ void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const cha
         printf("@miniGit: ");
     if(msg!=NULL && strcmp(msg,"")!=0)
         printf("%s> ",msg);
-    printf(COLOR_RESET);
     fgets(dest, maxLength, stdin);
     if ((strlen(dest) > 0) && (dest[strlen (dest) - 1] == '\n'))
         dest[strlen (dest) - 1] = '\0';
@@ -325,18 +323,14 @@ int sendDir(int socket, struct Packet *packet, const char *dirName, int level, b
                 continue;
             
             snprintf(path, sizeof(path), "%s/%s", dirName, entry->d_name);
-            if(print){
-                printf(COLOR_BOLD_BLUE);
-                printf("%*s%s\n", (level * 2), "", entry->d_name);
-                printf(COLOR_RESET);
-            }
+            if(print) printf("%*s[%s]\n", (level * 2), "", entry->d_name);
             ret = sendDir(socket, packet, path, level + 1, send, print, exclude); // recursion
             if(ret != 1)    
                 return ret;
         } 
         // Else if entry is a file
         else {
-            if(print) printf("%*s%s\n", (level * 2), "", entry->d_name);
+            if(print) printf("%*s- %s\n", (level * 2), "", entry->d_name);
             if(send){
                 char fileName[PATHLEN];
                 snprintf(fileName, sizeof(fileName), "%s/%s", dirName, entry->d_name);
@@ -516,6 +510,49 @@ int remove_directory(const char *path, const char *exclude) {
     return r;
 }
 
+int clean_directory(const char *path, const char *exclude, char* miniGitPath) {
+    DIR *d = opendir(path);
+    size_t path_len = strlen(path);
+    int r = -1;
+    if (d) {
+        struct dirent *p;
+
+        r = 0;
+        while (!r && (p=readdir(d))) {
+            int r2 = -1;
+            char *buf;
+            size_t len;
+
+            /* Skip the names "." and ".." as we don't want to recurse on them. */
+            if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, "..") || !strcmp(p->d_name, ".miniGit"))
+                continue;
+
+            len = path_len + strlen(p->d_name) + 2; 
+            buf = malloc(len);
+
+            if (buf) {
+                struct stat statbuf;
+
+                snprintf(buf, len, "%s/%s", path, p->d_name);
+                if (!stat(buf, &statbuf)) {
+                    if (S_ISDIR(statbuf.st_mode))
+                        r2 = clean_directory(buf, exclude, miniGitPath);
+                    else
+                        r2 = unlink(buf);
+                }
+                free(buf);
+            }
+            r = r2;
+        }
+        closedir(d);
+    }
+
+    if (!r && strcmp(path,exclude)!=0 && strcmp(path,miniGitPath) != 0)
+        r = rmdir(path);
+
+    return r;
+}
+
 void getNthArg(const char * typedInCommand, int n, char * nthArg){
     char *token, *rest, aux[COMMANDLEN];
     strcpy(aux, typedInCommand);
@@ -560,30 +597,26 @@ printf("                         Use of miniGit\n");
 printf("------------------------------------------------------------------\n");
 printf("------------------------------------------------------------------\n");
 printf("Accepted commands:\n");
-printf("%susername@miniGit: Enter command>%s help\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s init\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s add or add .\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s commit YOUR MSG WITH WHITESPACES ALLOWED\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s checkout HASH 'or' checkout BRANCH\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s clone USERNAME\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s clear\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s exit 'OR' stop\n",COLOR_GREEN, COLOR_RESET);
+printf("username@miniGit: Enter command> help\n");
+printf("username@miniGit: Enter command> init\n");
+printf("username@miniGit: Enter command> add or add .\n");
+printf("username@miniGit: Enter command> commit YOUR MSG WITH WHITESPACES ALLOWED\n");
+printf("username@miniGit: Enter command> checkout HASH 'or' checkout BRANCH\n");
+printf("username@miniGit: Enter command> clone USERNAME\n");
+printf("username@miniGit: Enter command> clear\n");
+printf("username@miniGit: Enter command> exit 'OR' stop\n");
 printf("\n");
 printf("Accepted commands when not signed in (ONLY):\n");
-printf("%s@miniGit: Enter command>%s login 'or' signin\n",COLOR_GREEN, COLOR_RESET);
-printf("%s@miniGit: Enter command>%s signup 'or' register\n",COLOR_GREEN, COLOR_RESET);
+printf("@miniGit: Enter command> login 'or' signin\n");
+printf("@miniGit: Enter command> signup 'or' register\n");
 printf("\n");
 printf("Accepted commands when signed in (ONLY):\n");
-printf("%susername@miniGit: Enter command>%s pull\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s push\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s ls\n",COLOR_GREEN, COLOR_RESET);
-printf("%susername@miniGit: Enter command>%s logout 'or' signout\n",COLOR_GREEN, COLOR_RESET);
+printf("username@miniGit: Enter command> pull\n");
+printf("username@miniGit: Enter command> push\n");
+printf("username@miniGit: Enter command> ls\n");
+printf("username@miniGit: Enter command> logout 'or' signout\n");
 printf("------------------------------------------------------------------\n");
 printf("------------------------------------------------------------------\n");
-}
-
-void clearScreen(void){
-    printf("\e[1;1H\e[2J");
 }
 
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
@@ -624,10 +657,6 @@ void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
         }
     }
     closedir(dir);
-}
-
-int simpleCheckFileExistance(char *filePath){
-    return access(filePath, F_OK);
 }
 
 void createFolder(char* prevFolderPath, char* folderName){
@@ -1189,6 +1218,7 @@ void buildCommitTree(char* commitTreeHash, char* creationFlag, clientInfo_t *cli
         }
 
     }
+    printf("%s\n", treeContent);
     hashObjectFromString('t',treeContent,commitTreeHash,"-w", clientInfo);
 
     fclose(index);
@@ -1202,7 +1232,7 @@ void getActiveBranch(char* branch_path, clientInfo_t *clientInfo){
     strcpy(head_path, clientInfo->username);
     strcat(head_path, HEAD_PATH);
     head = fopen(head_path,"rb");
-    if (head == NULL) perror("Error opening branch file: "), exit(EXIT_FAILURE);
+    if (head == NULL) perror("Error opening branch file: "), exit(1);
 
     fgets(branch_path,PATHS_MAX_SIZE,head);
     fclose(head);
@@ -1211,8 +1241,20 @@ void getActiveBranch(char* branch_path, clientInfo_t *clientInfo){
     branch_path[strcspn(branch_path, "\n")] = 0;
 }
 
-void setActiveBranch(char* branchName){
-    // TODO
+void setActiveBranch(char* branchName,clientInfo_t *clientInfo){
+
+    // Only needs to change HEAD file to points branchName
+    FILE *head;
+
+    // Open HEAD file and get branch path
+    char head_path[SMALLPATHLEN];
+    strcpy(head_path, clientInfo->username);
+    strcat(head_path, HEAD_PATH);
+    head = fopen(head_path,"wb");
+    if (head == NULL) perror("Error opening branch file: "), exit(1);
+
+    fputs(branchName,head);
+    fclose(head);
 }
 
 void updateBranch(char* branchPath, char* newCommitHash){
@@ -1400,6 +1442,7 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
     {
         // Create blob object and update index
         char hashBlob[2*SHA224_DIGEST_LENGTH];
+        printf("basepath: %s\n",basePath);
         hashObject('b',basePath,basePath,hashBlob,"-w", clientInfo);
         updateIndex(hashBlob,basePath,'b', clientInfo);
 
@@ -1636,12 +1679,13 @@ void init(clientInfo_t *clientInfo)
     createFile(refs_head_path,"master","NONE");
     createFile(minigit_path,"index"," ");
     createFile(minigit_path,"HEAD",refs_head_master_path);
-    printf("Init finished\n");
+
 }
 
 void add(clientInfo_t *clientInfo){
     // Define some paths
     char index_path[SMALLPATHLEN];
+    char userDir[SMALLPATHLEN];
     strcpy(index_path, clientInfo->username);
     strcat(index_path, "/.miniGit/index");
     // Try to delete old index file
@@ -1673,4 +1717,185 @@ void commit(char* msg, clientInfo_t *clientInfo){
     // Print succes messages
     getNameFromPath(active_branch,branch_name);
     printf("Active branch '%s' was updated with new commit!\n",branch_name);
+}
+
+int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
+{
+    /* 
+    Checkout to version. This argument can be:
+        version: hash
+        version: branchName
+        If branch name lenght == 40 --> Complete mess! May Zeus help you
+    */
+    char commitHash[2*SHA_DIGEST_LENGTH];
+    char treeHash[2*SHA_DIGEST_LENGTH];
+    char commitPath[PATHS_MAX_SIZE];
+    char currentBranchPath[PATHS_MAX_SIZE];
+    char currentBranchName[PATHS_MAX_SIZE];
+    char objects_path[PATHS_MAX_SIZE];
+    char userDir[PATHS_MAX_SIZE];
+    char miniGitPath[PATHS_MAX_SIZE];
+    int restoreStatus;
+
+    // Get current branch in case something goes wrong
+    getActiveBranch(currentBranchPath,clientInfo);
+    getNameFromPath(currentBranchPath,currentBranchName);
+
+    // Case of hash to checkout
+    if(strlen(version) == (2*SHA_DIGEST_LENGTH))
+    {
+        strcpy(commitHash,version);
+        commitHash[strcspn(commitHash, "\n")] = 0;
+    }
+
+    // Case of branch
+    else
+    {
+        char refsHeadPath[PATHS_MAX_SIZE];
+        char branchPath[PATHS_MAX_SIZE];
+        bool fileExistence = false;
+        FILE* branchFile;
+
+        // Build path for refs/head/
+        strcpy(refsHeadPath,clientInfo->username);
+        strcat(refsHeadPath,REFS_HEAD_PATH);
+
+        // Check if branch exist
+        checkFileExistence(refsHeadPath,version,&fileExistence);
+        if (fileExistence == false)
+        {   
+            sprintf(mssg,"The branch '%s' doesn't exist! Current branch '%s' remains active.\n", version, currentBranchName);
+            fclose(branchFile);
+            return 0;
+        }
+        
+        // Branch exist, so build its path
+        strcpy(branchPath,refsHeadPath);
+        strcat(branchPath,"/");
+        strcat(branchPath,version);
+
+        // Open branch path and get commit hash
+        branchFile = fopen(branchPath,"rb");
+
+        fgets(commitHash,2*SHA_DIGEST_LENGTH,branchFile);
+        commitHash[strcspn(commitHash, "\n")] = 0;
+
+        // Check if commitHash is NONE
+        if (strcmp(commitHash,"NONE") == 0)
+        {
+            sprintf(mssg,"Branch '%s' has no initial commit. Current branch '%s' remains active.\n", version, currentBranchName);
+            fclose(branchFile);
+            return 0;
+        }
+
+        fclose(branchFile);
+    }
+
+    // Up to now, version to checkout is in commitHash. Get its tree
+    strcpy(objects_path,clientInfo->username);
+    strcat(objects_path,OBJECTS_PATH);
+
+    int findStatus = 0;
+    findObject(objects_path, commitHash,commitPath,&findStatus);
+    if (findStatus == 0)
+    {
+        // Some error finding commit object
+        sprintf(mssg,"Couldn't build up directory. Please, try again\n");
+        return 0;
+    }
+
+    // Commit found. Get its tree hash
+    getFieldsFromCommit(commitPath,treeHash,NULL,NULL);
+    treeHash[strcspn(treeHash, "\n")] = 0;
+
+    // Now all dir must be deleted. Be sure that repo is up to date
+    if (checkUpToDate(clientInfo) == false)
+    {
+        char userAnswer;
+        printf("Warning!\nThere are changes that weren't commited. Last changes will be lost, are you sure you want to checkout? (y/n):  ");
+        scanf("%c\n",&userAnswer);
+        switch (userAnswer)
+        {
+            case 'n':
+                sprintf(mssg, "Checkout cancelled. Current branch '%s' remains active.\n", currentBranchName);
+                return 0;
+            case 'y':
+                break;
+            default:
+                sprintf(mssg, "Checkout cancelled. Wrong answer ('y' or 'n' accepted). Current branch '%s' remains active.\n", currentBranchName);
+                return 0;
+        }
+    }
+
+    // Clean complete dir
+    strcpy(userDir,"./");
+    strcat(userDir,clientInfo->username);
+    strcpy(miniGitPath,userDir);
+    strcat(miniGitPath,MINIGIT_PATH);
+
+    clean_directory(userDir,userDir,miniGitPath);
+
+    // Try to restore indicated version. If something fails, go back before checkout
+    if (buildUpDir(userDir,treeHash,clientInfo) == 0)
+    {
+        // Some error building up dir. Restore version before checkout
+        FILE* branchFile;
+        int findStatus = 0;
+        
+        branchFile = fopen(currentBranchPath,"rb");
+        fgets(commitHash,2*SHA_DIGEST_LENGTH,branchFile);
+        commitHash[strcspn(commitHash, "\n")] = 0;
+        fclose(branchFile); 
+
+        findObject(objects_path, commitHash,commitPath,&findStatus);
+        if (findStatus == 0)
+        {
+            // Some error finding commit object. MUST FIND! LOOK AGAIN
+            findObject(objects_path, commitHash,commitPath,&findStatus);
+            if (findStatus == 0)
+            {
+                // LAST OPORTUNITY! :(
+                findObject(objects_path, commitHash,commitPath,&findStatus);
+                if (findStatus == 0)
+                {
+                    sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you finding prevCommit. You must pull to recover your data... :0\n");
+                    return 0;
+                }
+
+            }
+        }
+
+        // Commit found. Get its tree hash
+        getFieldsFromCommit(commitPath,treeHash,NULL,NULL);
+        treeHash[strcspn(treeHash, "\n")] = 0;
+
+        if (buildUpDir(userDir,treeHash,clientInfo) == 0){
+            // Please, try again... come on!
+            if (buildUpDir(userDir,treeHash,clientInfo) == 0){
+                sprintf(mssg,"A rare and insolit error ocurred. miniGit have abandoned you restoring prevVersion. You must pull to recover your data... :0\n");
+                return 0; 
+            }
+        }
+
+        // Prev version could be restored
+        sprintf(mssg,"Checkout cancelled. Current branch '%s' remains active\ncommitHash: %s\n", currentBranchName,commitHash);
+        return 0; 
+    }
+
+    // Here we're safe!
+
+    // RESTORE: Update refs/head/CURRENT_BRANCH with prev version
+    if (strlen(version) == 2*SHA_DIGEST_LENGTH)
+    {
+        updateBranch(currentBranchPath,commitHash);
+        sprintf(mssg,"Version %s was restored correctly!\n",version);
+    }
+    
+    // CHANGING BRANCH: Update HEAD if branch name was given
+    else
+    {
+        setActiveBranch(version,clientInfo);
+        sprintf(mssg,"Branch '%s' is active now!\n",version);
+    }
+    return 1;
 }
