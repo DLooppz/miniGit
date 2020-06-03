@@ -656,7 +656,7 @@ void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
                 
                 // Notify that file was found and return
                 *findStatus = true;
-                return;
+                break;
             }
 
             // Construct new path from our base path
@@ -668,6 +668,7 @@ void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
         }
     }
     closedir(dir);
+    return;
 }
 
 int simpleCheckFileExistance(char *filePath){
@@ -774,6 +775,7 @@ void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatu
         }
     }
     closedir(dir);
+    return;
 }
 
 void computeSHA1(char* text, char* hash_output){
@@ -1777,8 +1779,8 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         version: branchName
         If branch name lenght == 40 --> Complete mess! May Zeus help you
     */
-    char commitHash[2*SHA_DIGEST_LENGTH];
-    char treeHash[2*SHA_DIGEST_LENGTH];
+    char commitHash[2*SHA_DIGEST_LENGTH+1];
+    char treeHash[2*SHA_DIGEST_LENGTH+1];
     char commitPath[PATHS_MAX_SIZE];
     char currentBranchPath[PATHS_MAX_SIZE];
     char currentBranchName[PATHS_MAX_SIZE];
@@ -1792,8 +1794,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     getNameFromPath(currentBranchPath,currentBranchName);
 
     // Case of hash to checkout
-    if(strlen(version) == (2*SHA_DIGEST_LENGTH))
-    {
+    if(strlen(version) == (2*SHA_DIGEST_LENGTH)){
         strcpy(commitHash,version);
         commitHash[strcspn(commitHash, "\n")] = 0;
     }
@@ -1810,10 +1811,9 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         strcpy(refsHeadPath,clientInfo->username);
         strcat(refsHeadPath,REFS_HEAD_PATH);
 
-        // Check if branch exist
+        // Check if branch exists
         checkFileExistence(refsHeadPath,version,&fileExistence);
-        if (fileExistence == false)
-        {   
+        if (fileExistence == false){
             sprintf(mssg,"The branch '%s' doesn't exist! Current branch '%s' remains active.\n", version, currentBranchName);
             fclose(branchFile);
             return 0;

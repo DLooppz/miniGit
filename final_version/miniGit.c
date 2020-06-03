@@ -418,24 +418,18 @@ int main(){
 
                 // Check that only one argument was given
                 getNthArg(typedInCommand, 2, nThArg);
-                if (nThArg[0] != '\0')
-                {
+                if (nThArg[0] != '\0'){
                     printf("Usage: checkout VERSION\n\n");
                     break;
                 }
 
-                // OK ZONE
+                // OK zone
                 char returnedMessage[MSGLEN];
                 if (checkout(version,&clientInfo,returnedMessage) == 0)
-                {
                     printf("Error! %s\n",returnedMessage);
-                    break;
-                }
                 else
-                {
                     printf("Success! %s\n",returnedMessage);
-                    break;
-                }
+                break;
 
             case c_wrongCommand:
                 printf("Unknown command: %s \n",typedInCommand);
