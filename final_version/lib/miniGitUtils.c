@@ -559,6 +559,7 @@ int clean_directory(const char *path, const char *exclude, char* miniGitPath) {
     return r;
 }
 
+
 void getNthArg(const char * typedInCommand, int n, char * nthArg){
     char *token, *rest, aux[COMMANDLEN];
     strcpy(aux, typedInCommand);
@@ -730,9 +731,13 @@ void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatu
     char hashToFindCropped[2*SHA_DIGEST_LENGTH - 2];
     char first2Characters[3];
     
+    // Be sure of hashName lenght (sometimes hashName comes with trash at the end)
+    char hashToFind2[2*SHA_DIGEST_LENGTH];
+    strncpy(hashToFind2,hashToFind,2*SHA_DIGEST_LENGTH);
+
     // Crop the first 2 characters of hashToFind
     for (int i=0;i<(2*SHA_DIGEST_LENGTH-2);i++){
-        hashToFindCropped[i] = hashToFind[i+2];
+        hashToFindCropped[i] = hashToFind2[i+2];
     }
 
     // Unable to open directory stream
@@ -755,7 +760,7 @@ void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatu
 
                 // Notify that file was found and return
                 *findStatus = 1;
-                return;
+                break;
             }
 
             // Construct new path from our base path
@@ -764,6 +769,8 @@ void findObject(char *basePath,char* hashToFind, char* pathFound, int* findStatu
             strcat(path, dirent_pointer->d_name);
 
             findObject(path,hashToFind,pathFound,findStatus);
+            if (*findStatus == 1)
+                break;
         }
     }
     closedir(dir);
@@ -871,7 +878,13 @@ void hashObject(char type, char* path, char* fileName, char* hashName_out, char*
 
     // Open files (b: security for non Linux env)
     original_file = fopen (path , "rb");
-    if(!original_file) perror("Error opening file to create object"),exit(1);
+    if(!original_file) 
+    {
+        // Most probably folder is empty. So tempTree was never opened. Dont create objects for empty folders
+        strcpy(hashName_out,"NONE");
+        printf("Entrie: '%s' was not added. Probably it was an empty folder.\n",fileName);
+        return;
+    }
 
     // Get size of file
     fseek(original_file , 0L , SEEK_END); /* Set the file position indicator at the end */
@@ -1478,7 +1491,7 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
     // "dir" is a directory: create trees for folders if level > 0
     if (level > 0){
         strcpy(tempTreeFileName,basePath);
-        strcat(tempTreeFileName,"/tempTree");
+        strcat(tempTreeFileName,"/tempTree");     
     }
 
     // Move over entries in basePath
@@ -1520,25 +1533,30 @@ void addAllFiles(char* basePath, char* prevFolder, int level, clientInfo_t *clie
         char hashTree[2*SHA224_DIGEST_LENGTH];
         hashObject('t', tempTreeFileName, basePath, hashTree, "-w", clientInfo);
         
-        // Update index with folder and its hash
-        updateIndex(hashTree,basePath,'t', clientInfo);
-        
-        // Remove temporal tree file
-        if (remove(tempTreeFileName) == -1) perror("Error trying to remove './tempTree': "),exit(1);
-
-        // Update treeFather with hash of this tree if level > 1
-        if (level >1)
+        // In case folder is not empty, update everything
+        if (strcmp(hashTree,"NONE")!=0)
         {
-            strcpy(tempTreeFileName,prevFolder);
-            strcat(tempTreeFileName,"/tempTree");
-            fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
-            if (fd_tree < 0) perror("Error opening './tempTree': "), exit(1);
+            // Update index with folder and its hash
+            updateIndex(hashTree,basePath,'t', clientInfo);
+            
+            // Remove temporal tree file
+            if (remove(tempTreeFileName) == -1) perror("Error trying to remove './tempTree': "),exit(1);
 
-            if (write(fd_tree, hashTree, strlen(hashTree)) < 1) perror("Error writing hash into './tempTree': "),exit(1);
-            if (write(fd_tree, "\n", 1) < 1) perror("Error writing ' ' into './tempTree': "),exit(1);
+            // Update treeFather with hash of this tree if level > 1
+            if (level >1)
+            {
+                strcpy(tempTreeFileName,prevFolder);
+                strcat(tempTreeFileName,"/tempTree");
+                fd_tree = open(tempTreeFileName, O_RDWR | O_CREAT | O_APPEND, 0666);
+                if (fd_tree < 0) perror("Error opening './tempTree': "), exit(1);
 
-            if (close(fd_tree) == -1) perror("Error closing './tempTree' 1: "),exit(1);
+                if (write(fd_tree, hashTree, strlen(hashTree)) < 1) perror("Error writing hash into './tempTree': "),exit(1);
+                if (write(fd_tree, "\n", 1) < 1) perror("Error writing ' ' into './tempTree': "),exit(1);
+
+                if (close(fd_tree) == -1) perror("Error closing './tempTree' 1: "),exit(1);
+            }
         }
+        
     }
     closedir(dir);
 }
@@ -1561,8 +1579,7 @@ int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientI
     int findStatus = 0,line = 0;
     
     // Set correct path for searching treeHash
-    strcpy(objectsPath,"./");
-    strcat(objectsPath,clientInfo->username);
+    strcpy(objectsPath,clientInfo->username);
     strcat(objectsPath,OBJECTS_PATH);
 
     findObject(objectsPath,currentTreeHash,treeObjectPath,&findStatus);
@@ -1648,6 +1665,9 @@ int buildUpDir(char* currenDirPath, char* currentTreeHash, clientInfo_t *clientI
     
     // Close tree object file
     fclose(dirTree);
+
+    // Update Staging area
+    add(clientInfo);
     return 1;
 }
 
@@ -1689,7 +1709,7 @@ void init(clientInfo_t *clientInfo)
     
     // Create miniGit files
     createFile(refs_head_path,"master","NONE");
-    createFile(minigit_path,"index"," ");
+    createFile(minigit_path,"index","NONE");
     createFile(minigit_path,"HEAD",refs_head_master_path);
     printf("Init finished\n");
 }
@@ -1709,17 +1729,36 @@ void add(clientInfo_t *clientInfo){
 void commit(char* msg, clientInfo_t *clientInfo){
     char commitTreeHash[2*SHA_DIGEST_LENGTH], commitHash[2*SHA_DIGEST_LENGTH];
     char active_branch[PATHS_MAX_SIZE], branch_name[PATHS_MAX_SIZE];
+    char index_path[SMALLPATHLEN];
+    char buffer[PATHS_MAX_SIZE];
     int ret;
+    FILE *index;
     
+    // Check that index is not empty (NONE)
+    strcpy(index_path, clientInfo->username);
+    strcat(index_path, INDEX_PATH);
+    index = fopen(index_path,"rb");
+    fgets(buffer, PATHS_MAX_SIZE, index);
+    buffer[strcspn(buffer, "\n")] = 0;
+    if (strcmp(buffer,"NONE")==0)
+    {
+        printf("Nothing to commit. Files must be add to the staging area before. Type 'help' for more information.\n");
+        fclose(index);
+        return;
+    }
+
+    // Check if repo is up to date
+    if (checkUpToDate(clientInfo))
+    {
+        printf("Nothing to commit. Up to date\n");
+        return;
+    }
+
     // Create commit tree object
     buildCommitTree(commitTreeHash,"-w", clientInfo);
 
     // Create commit object
-    ret = buildCommitObject(msg, commitTreeHash, clientInfo->username, commitHash, clientInfo);
-    if (ret == 0){
-        printf("Nothing to commit. Up to date\n");
-        return;
-    }
+    buildCommitObject(msg, commitTreeHash, clientInfo->username, commitHash, clientInfo);
 
     // Update active branch
     getActiveBranch(active_branch, clientInfo);
@@ -1824,7 +1863,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     {
         char userAnswer;
         printf("Warning!\nThere are changes that weren't commited. Last changes will be lost, are you sure you want to checkout? (y/n):  ");
-        scanf("%c\n",&userAnswer);
+        userAnswer = getchar();
         switch (userAnswer)
         {
             case 'n':

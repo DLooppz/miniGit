@@ -349,7 +349,7 @@ int main(){
                 // Get message
                 char msg[MSGLEN];
                 getMsg(typedInCommand, msg, MSGLEN);
-
+                
                 // Check if message is not null
                 if(msg[0] == '\0'){
                     printf("You must enter a message in a commit.\n");
@@ -367,8 +367,7 @@ int main(){
                     printf("Try with adding some files. Then `add` and then `commit WITH YOUR COMMIT MESSAGE`\n\n");
                     break;
                 }
-
-                // OK zone
+                // OK zone (internally checks if index is not empty)
                 commit(msg, &clientInfo);
                 printf("\n");
                 break;
@@ -398,18 +397,45 @@ int main(){
 
                 // OK zone 
                 add(&clientInfo);
-                printf("Add finished\n");
                 printf("\n");
                 break;
             
             case c_checkout:
-                getNthArg(typedInCommand, 1, nThArg);
-                if(strlen(nThArg) == (2 * SHA_DIGEST_LENGTH)){
-                    
-                } else {
-                    
+                // Check if signed in
+                if(!isSignedIn(&clientInfo)){
+                    printf("You are not signed in\n\n");
+                    break;
                 }
-                break;
+
+                // Check if version is not null
+                char version[MSGLEN];
+                getMsg(typedInCommand, version, MSGLEN);
+                if(version[0] == '\0'){
+                    printf("You must enter a version to check (HASH or BRANCH-NAME) in a checkout.\n");
+                    printf("Usage: checkout VERSION\n\n");
+                    break;
+                }    
+
+                // Check that only one argument was given
+                getNthArg(typedInCommand, 2, nThArg);
+                if (nThArg[0] != '\0')
+                {
+                    printf("Usage: checkout VERSION\n\n");
+                    break;
+                }
+
+                // OK ZONE
+                char returnedMessage[MSGLEN];
+                if (checkout(version,&clientInfo,returnedMessage) == 0)
+                {
+                    printf("Error! %s\n",returnedMessage);
+                    break;
+                }
+                else
+                {
+                    printf("Success! %s\n",returnedMessage);
+                    break;
+                }
 
             case c_wrongCommand:
                 printf("Unknown command: %s \n",typedInCommand);
