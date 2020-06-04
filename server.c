@@ -1,5 +1,5 @@
 // Run with:
-// clear && gcc -pthread server.c lib/miniGitUtils.c -lm -lssl -lcrypto -o server && ./server
+// gcc -pthread server.c lib/miniGitUtils.c -lm -lssl -lcrypto -o server && ./server
 
 #include<stdio.h>
 #include<stdlib.h>
