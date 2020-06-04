@@ -1,7 +1,12 @@
 # miniGit
 Implementation of a dummy git with server/cloud storage
 
-## Ideas for live demo (in order)
+### How to run it
+1. Run `server.c` with `./server.c` (you can minimize this window)
+1. Run `miniGit.c` with `./miniGit.c` (this can be done as many times as the number of clients connected in simultaneous would like to have)
+
+
+### Ideas for live demo (in order)
 First time
 1. Run ./server and ./miniGit
 1. `help`
