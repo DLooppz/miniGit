@@ -1,5 +1,5 @@
 // Run with:
-// clear && gcc miniGit.c lib/miniGitUtils.c -lm -lssl -lcrypto -o miniGit && ./miniGit
+// gcc miniGit.c lib/miniGitUtils.c -lm -lssl -lcrypto -o miniGit && ./miniGit
 
 #include<stdio.h>
 #include<stdlib.h>
