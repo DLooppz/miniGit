@@ -150,7 +150,7 @@ int isRegistered(char *username);
 int isPassCorrect(clientInfo_t *clientInfo);
 
 int readNthLineFromFile(const char *srcPath, char *dest, int nthLine);
-void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg);
+void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg, bool hide);
 int createUser(clientInfo_t *clientInfo);
 int createDir(const char *dirName);
 enum Command typed2enum(const char *typedInCommand);

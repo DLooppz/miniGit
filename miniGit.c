@@ -50,7 +50,7 @@ int main(){
     
     while(1){
         // Ask user for command
-        getStdInput(typedInCommand, COMMANDLEN, &clientInfo, "Enter command");
+        getStdInput(typedInCommand, COMMANDLEN, &clientInfo, "Enter command", false);
         
         command = typed2enum(typedInCommand);
 
@@ -63,8 +63,8 @@ int main(){
                 }
 
                 // Ask user for username and password
-                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username");
-                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password");
+                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username", false);
+                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password", true);
 
                 // Send packet
                 setSignInPacket(&packet, clientInfo.username ,clientInfo.password);
@@ -139,9 +139,9 @@ int main(){
                 }
 
                 // Ask user for username and password
-                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username");
-                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password");
-                getStdInput(checkPass, PASSLEN, &clientInfo, "Repeat password");
+                getStdInput(clientInfo.username, USERLEN, &clientInfo, "Enter username", false);
+                getStdInput(clientInfo.password, PASSLEN, &clientInfo, "Enter password", true);
+                getStdInput(checkPass, PASSLEN, &clientInfo, "Repeat password", true);
 
                 // Check password
                 if(strcmp(clientInfo.password,checkPass)!=0){
@@ -380,6 +380,7 @@ int main(){
                     break;
                 }
 
+                // Check if init was made
                 char miniGitPath[SMALLPATHLEN];
                 strcpy(miniGitPath, clientInfo.username);
                 strcat(miniGitPath, "/.miniGit");
@@ -455,6 +456,11 @@ int main(){
                 break;
 
             case c_log: 
+                // Check if signed in
+                if(!isSignedIn(&clientInfo)){
+                    printf("You are not signed in\n\n");
+                    break;
+                }
 
                 // Check that no argument was given
                 getNthArg(typedInCommand, 1, nThArg);
