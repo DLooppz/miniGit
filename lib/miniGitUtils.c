@@ -1309,6 +1309,7 @@ void setActiveBranch(char* branchName,clientInfo_t *clientInfo){
 
     // Only needs to change HEAD file to points branchName
     FILE *head;
+    char branchPath[PATHS_MAX_SIZE];
 
     // Open HEAD file and get branch path
     char head_path[SMALLPATHLEN];
@@ -1317,7 +1318,14 @@ void setActiveBranch(char* branchName,clientInfo_t *clientInfo){
     head = fopen(head_path,"wb");
     if (head == NULL) perror("Error opening branch file: "), exit(1);
 
-    fputs(branchName,head);
+    // Build branch path
+    strcpy(branchPath,clientInfo->username);
+    strcat(branchPath,REFS_HEAD_PATH);
+    strcat(branchPath,"/");
+    strcat(branchPath,branchName);
+
+    // Update HEAD
+    fputs(branchPath,head);
     fclose(head);
 }
 
@@ -1828,6 +1836,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     char commitPath[PATHS_MAX_SIZE];
     char currentBranchPath[PATHS_MAX_SIZE];
     char currentBranchName[PATHS_MAX_SIZE];
+    char toActivateBranchPath[PATHS_MAX_SIZE]; /* Use only with branchs */
     char objects_path[PATHS_MAX_SIZE];
     char userDir[PATHS_MAX_SIZE];
     char miniGitPath[PATHS_MAX_SIZE];
@@ -1847,30 +1856,28 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     else{
         char refsHeadPath[PATHS_MAX_SIZE];
         char branchPath[PATHS_MAX_SIZE];
-        bool fileExistence = false;
         FILE* branchFile;
 
         // Build path for refs/head/
         strcpy(refsHeadPath,clientInfo->username);
         strcat(refsHeadPath,REFS_HEAD_PATH);
+        version[strcspn(version, "\n")] = 0;
 
         // Check if branch exists
-        checkFileExistence(refsHeadPath,version,&fileExistence);
-        if (fileExistence == false){
+        strcpy(branchPath,refsHeadPath);
+        strcat(branchPath,"/");
+        strcat(branchPath,version);
+
+        if (simpleCheckFileExistance(branchPath) == -1){
             sprintf(mssg,"The branch '%s' doesn't exist! Current branch '%s' remains active.\n", version, currentBranchName);
             fclose(branchFile);
             return 0;
         }
         
-        // Branch exist, so build its path
-        strcpy(branchPath,refsHeadPath);
-        strcat(branchPath,"/");
-        strcat(branchPath,version);
-
-        // Open branch path and get commit hash
+        // Branch exist: open branch path and get commit hash. Save branchPath
+        strcpy(toActivateBranchPath,branchPath);
         branchFile = fopen(branchPath,"rb");
-
-        fgets(commitHash,2*SHA_DIGEST_LENGTH,branchFile);
+        fgets(commitHash,2*SHA_DIGEST_LENGTH+1,branchFile);
         commitHash[strcspn(commitHash, "\n")] = 0;
 
         // Check if commitHash is NONE
@@ -1963,16 +1970,16 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
 
     // Here we're safe!
 
-    // RESTORE: Update refs/head/CURRENT_BRANCH with prev version
+    // check old version: Dont update refs/head/CURRENT_BRANCH with prev version
     if (strlen(version) == 2*SHA_DIGEST_LENGTH)
     {
-        updateBranch(currentBranchPath,commitHash);
         sprintf(mssg,"Version %s was restored correctly!\n",version);
     }
     
     // CHANGING BRANCH: Update HEAD if branch name was given
     else
     {
+        updateBranch(toActivateBranchPath,commitHash);
         setActiveBranch(version,clientInfo);
         sprintf(mssg,"Branch '%s' is active now!\n",version);
     }
