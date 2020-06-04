@@ -219,16 +219,18 @@ int main(){
                     break;
                 }
 
-                // Just in case, create folder locally (it should exist)
-                createDir(nThArg);
+                
 
                 if(strcmp(nThArg, clientInfo.username) != 0){
                     char aux[COMMANDLEN];
                     strcpy(aux, nThArg);
                     strcat(aux, "_CLONED");
+                    createDir(aux); // Just in case, create folder locally (it should exist)
                     ret = recvDir(clientInfo.sock_fd, &packet, aux);
-                } else
+                } else{
+                    createDir(nThArg); // Just in case, create folder locally (it should exist)
                     ret = recvDir(clientInfo.sock_fd, &packet, nThArg);
+                }
 
                 // Receive data
                 if(ret == -1){
