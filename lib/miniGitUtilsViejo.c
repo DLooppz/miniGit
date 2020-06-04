@@ -202,7 +202,7 @@ int readNthLineFromFile(const char *srcPath, char *dest, int nthLine){
     return -1;
 }
 
-void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg, bool hide){
+void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const char * msg){
     printf(COLOR_BOLD_GREEN);
     bzero(dest,sizeof(dest));
     if(isSignedIn(clientInfo))
@@ -212,39 +212,9 @@ void getStdInput(char *dest, uint maxLength, clientInfo_t *clientInfo, const cha
     if(msg!=NULL && strcmp(msg,"")!=0)
         printf("%s> ",msg);
     printf(COLOR_RESET);
-
-    if(!hide){
-        if (fgets(dest, maxLength, stdin) == NULL)
-            dest[0] = '\0';
-        else
-            dest[strlen(dest)-1] = '\0';
-    } else {
-        static struct termios old_terminal;
-        static struct termios new_terminal;
-
-        //get settings of the actual terminal
-        tcgetattr(STDIN_FILENO, &old_terminal);
-
-        // do not echo the characters
-        new_terminal = old_terminal;
-        new_terminal.c_lflag &= ~(ECHO);
-
-        // set this as the new terminal options
-        tcsetattr(STDIN_FILENO, TCSANOW, &new_terminal);
-
-        // get the password
-        // the user can add chars and delete if he puts it wrong
-        // the input process is done when he hits the enter
-        // the \n is stored, we replace it with \0
-        if (fgets(dest, maxLength, stdin) == NULL)
-            dest[0] = '\0';
-        else
-            dest[strlen(dest)-1] = '\0';
-
-        // go back to the old settings
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_terminal);
-        printf("\n");
-    }
+    fgets(dest, maxLength, stdin);
+    if ((strlen(dest) > 0) && (dest[strlen (dest) - 1] == '\n'))
+        dest[strlen (dest) - 1] = '\0';
 }
 
 enum Command typed2enum(const char *typedInCommand){ // Attention: if this is modified, enum Command should also be modified
