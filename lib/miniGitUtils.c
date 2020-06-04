@@ -236,7 +236,9 @@ enum Command typed2enum(const char *typedInCommand){ // Attention: if this is mo
         return c_ls;
     else if(strcmp(typedInCommand,"init")==0)
         return c_init;
-    
+    else if(typedInCommand[0] == '\0')
+        return c_enter;
+
     // If its none of the previous commands:
     char *token, *rest, aux[COMMANDLEN];
     strcpy(aux, typedInCommand);
@@ -251,6 +253,10 @@ enum Command typed2enum(const char *typedInCommand){ // Attention: if this is mo
         return c_commit;
     else if(strcmp(token,"checkout")==0)
         return c_checkout;
+    else if(strcmp(token,"cat-file")==0)
+        return c_cat_file;
+    else if(strcmp(token,"log")==0)
+        return c_log;
     return c_wrongCommand;
 }
 
@@ -628,6 +634,13 @@ printf("------------------------------------------------------------------\n");
 
 void clearScreen(void){
     printf("\e[1;1H\e[2J");
+}
+
+void getFileCreationTime(char *filePath, char *date)
+{
+    struct stat attr;
+    stat(filePath, &attr);
+    strcpy(date,ctime(&attr.st_mtime));
 }
 
 void checkFileExistence(char *basePath,char* fileToFind, bool* findStatus)
@@ -1044,7 +1057,7 @@ int getFieldsFromIndex(char* index_line, char* hash_out, char* path_out){
     return ret;
 }
 
-void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user){
+void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user, char* message){
     /*
     Function that returns fields of commit object.
     If NULL is passed as argument of some fields, they're not stored
@@ -1059,7 +1072,7 @@ void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* u
     if(!commit) perror("Error opening commit: "),exit(1);
 
     // Get each line
-    for (i=0;i<4;i++)
+    for (i=0;i<6;i++)
     {
         bzero(buffer, sizeof(buffer));
         fgets(buffer, PATHS_MAX_SIZE, commit);
@@ -1093,16 +1106,31 @@ void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* u
                 free(tofree);
                 break;
 
-            // Commit    
+            // user    
             case 3:
 
                 tofree = string = strdup(buffer);
                 assert(string != NULL);
 
-
                 token = strsep(&string, " ");
                 if (user != NULL)
                     strcpy(user,string);
+                free(tofree);
+                break;
+
+            // Emptyline    
+            case 4:
+                break;
+
+            // Message    
+            case 5:
+                tofree = string = strdup(buffer);
+                assert(string != NULL);
+
+
+                token = strsep(&string, ": ");
+                if (message != NULL)
+                    strcpy(message,string);
                 free(tofree);
                 break;
         }       
@@ -1354,7 +1382,7 @@ bool checkUpToDate(clientInfo_t *clientInfo){
         strcpy(objects_path, clientInfo->username);
         strcat(objects_path, OBJECTS_PATH);
         findObject(objects_path, prevCommitHash,prevCommit_path,&findStatus);
-        getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL);
+        getFieldsFromCommit(prevCommit_path,prevCommitTreeHash,NULL,NULL,NULL);
         
         // Remove posible '\n' at the end
         virtualTreeHash[strcspn(virtualTreeHash, "\n")] = 0;
@@ -1869,7 +1897,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
     }
 
     // Commit found. Get its tree hash
-    getFieldsFromCommit(commitPath,treeHash,NULL,NULL);
+    getFieldsFromCommit(commitPath,treeHash,NULL,NULL,NULL);
     treeHash[strcspn(treeHash, "\n")] = 0;
 
     // // Now all dir must be deleted. Be sure that repo is up to date
@@ -1920,7 +1948,7 @@ int checkout(char* version, clientInfo_t *clientInfo, char* mssg)
         }
 
         // Commit found. Get its tree hash
-        getFieldsFromCommit(commitPath,treeHash,NULL,NULL);
+        getFieldsFromCommit(commitPath,treeHash,NULL,NULL,NULL);
         treeHash[strcspn(treeHash, "\n")] = 0;
 
         if (buildUpDir(userDir,treeHash,clientInfo) == 0){
@@ -1982,7 +2010,65 @@ int cat_file(char* objectHash, char* cat_type, clientInfo_t *clientInfo, char* m
     }
 
     // Print content requested:
-    printf("%s\n",content);
+    printf("\n%s\n",content);
     free(content);
     return 1;
+}
+
+void logHist(clientInfo_t *clientInfo)
+{
+    /* Print history from current active branch */
+    char commitHash[2*SHA_DIGEST_LENGTH+1];
+    char prevCommitHash[2*SHA_DIGEST_LENGTH+1];
+    char user[MSGLEN], tree[MSGLEN], commitPath[PATHS_MAX_SIZE], mssg[MSGLEN], date[100];
+    char objectsPath[PATHS_MAX_SIZE];
+    int findStatus;
+
+    // Build objects path
+    strcpy(objectsPath,clientInfo->username);
+    strcat(objectsPath,"/.miniGit/objects");
+    
+    // Get current commit (the one in head/refs/master)
+    getLastCommit(commitHash,clientInfo);
+
+    while (strcmp(commitHash,"NONE") != 0)
+    {
+        // Get commit path
+        findStatus = 0;
+        findObject(objectsPath,commitHash,commitPath,&findStatus);
+        if (findStatus == 0)
+        {
+            printf("Unknown error. Try again\n");
+            return;
+        }
+
+        // Get fields from commit and remove \n
+        getFieldsFromCommit(commitPath,tree,prevCommitHash,user,mssg);
+        tree[strcspn(tree, "\n")] = 0;
+        prevCommitHash[strcspn(prevCommitHash, "\n")] = 0;
+        user[strcspn(user, "\n")] = 0;
+        mssg[strcspn(mssg, "\n")] = 0;
+
+        // Get date of last modification 
+        getFileCreationTime(commitPath,date);
+
+        // Print logs
+        printf("%sCommit: %s%s\n",COLOR_BOLD_BLUE,commitHash,COLOR_RESET);
+        printf("Author: %s\n",user);
+        printf("Date: %s\n",date);
+        printf("   %s\n\n",mssg);
+
+        // Check if prev commit is NONE
+        if (strcmp(prevCommitHash,"NONE") == 0)
+            break;
+        
+        // Update hash and reset 
+        strcpy(commitHash,prevCommitHash);
+        bzero(commitPath,sizeof(commitPath));
+        bzero(tree,sizeof(tree));
+        bzero(prevCommitHash,sizeof(prevCommitHash));
+        bzero(user,sizeof(user));
+        bzero(mssg,sizeof(mssg));
+        bzero(date,sizeof(date));
+    }
 }

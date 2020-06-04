@@ -431,6 +431,43 @@ int main(){
                 else
                     printf("Success! %s\n",returnedMessage);
                 break;
+            
+            case c_cat_file: ; //This ; is an empty statement for compiler "just stop being so palurdo and let me work!"
+
+                // Declare
+                char hashToCat[128];
+                char typeOfCat[128];
+                char messageRet[PATHS_MAX_SIZE];
+
+                // Check that only two argument were given
+                getNthArg(typedInCommand, 1, hashToCat);
+                getNthArg(typedInCommand, 2, typeOfCat);
+                getNthArg(typedInCommand, 3, nThArg);
+                if (nThArg[0] != '\0' || hashToCat[0] == '\0' || typeOfCat[0] == '\0'){
+                    printf("Usage: cat-file HASH [TYPE]\n\n");
+                    printf("[TYPE]: -p (content) or -t (header)\n");
+                    break;
+                }
+
+                // Cat file or error message
+                if (cat_file(hashToCat,typeOfCat,&clientInfo,messageRet) == 0)
+                    printf("%s",messageRet);
+                break;
+
+            case c_log: 
+
+                // Check that no argument was given
+                getNthArg(typedInCommand, 1, nThArg);
+                if (nThArg[0] != '\0'){
+                    printf("No arguments needed\nUsage: log\n\n");
+                    break;
+                } 
+                printf("\n");
+                logHist(&clientInfo);
+                break;
+            
+            case c_enter:
+                break;
 
             case c_wrongCommand:
                 printf("Unknown command: %s \n",typedInCommand);

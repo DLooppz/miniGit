@@ -42,10 +42,11 @@
 #include<dirent.h>
 #include<sys/stat.h>
 #include<termios.h>
-#include <unistd.h>
-#include <openssl/sha.h>
-#include <fcntl.h>
-#include <assert.h>
+#include<unistd.h>
+#include<openssl/sha.h>
+#include<fcntl.h>
+#include<assert.h>
+#include<time.h>
 
 // Declaration of variables, structs, enums, ...
 typedef struct {
@@ -65,12 +66,14 @@ enum Command {      // Attention: if this is modified, function typed2enum shoul
     c_block,
     c_push,
     c_pull,
+    c_enter,
     c_add,
-    c_cat_file
+    c_cat_file,
     c_commit,
     c_init,
     c_wrongCommand,
     c_checkout,
+    c_log,
     c_help,           // no packets with this command, but its useful for using a switch in client.c
     c_stop,           // no packets with this command, but its useful for using a switch in client.c
     c_clearScreen,    // no packets with this command, but its useful for using a switch in client.c
@@ -164,6 +167,7 @@ void getNthArg(const char * typedInCommand, int n, char * nthArg);
 void getMsg(const char * typedInCommand, char * msg, int msgLen);
 void printHelp(void);
 void clearScreen(void);
+void getFileCreationTime(char *filePath, char *date);
 
 
 // -----------------------------------------------------------------------------------------------
@@ -179,7 +183,7 @@ void buildHeader(char type, long contentSize, char* header_out);
 void hashObject(char type, char* path, char* fileName, char* hashName_out, char* creationFlag, clientInfo_t *clientInfo);
 void hashObjectFromString(char type, char* content, char* hashName_out, char* creationFlag, clientInfo_t * clientInfo);
 int getFieldsFromIndex(char* index_line, char* hash_out, char* path_out);
-void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user);
+void getFieldsFromCommit(char* commitPath, char* tree, char* prevCommit, char* user, char* message);
 int getFileLevel(char* path);
 char* getContentFromObject(char* objectPath, char* type);
 void getNameFromPath(char* path, char* name);
@@ -203,6 +207,6 @@ void commit(char* msg, clientInfo_t *clientInfo);
 int cat_file(char* objectHash, char* cat_type, clientInfo_t *clientInfo, char* mssg); /* "-p": content; "-t: type" */
 void hash_object(char* fileName, char* optionalArgs); /* -w: add object */ // EASY TODO
 int checkout(char* version, clientInfo_t *clientInfo, char* mssg);
-//void log(char* SHA1Commit); /* By default, master */ //TODO
+void logHist(clientInfo_t *clientInfo);
 
 #endif
